@@ -68,7 +68,9 @@ sleep 3
 ollama pull qwen3:8b
 ollama pull gemma4:e4b
 ollama pull llama3.1:8b
+ollama pull deepseek-r1:8b   # used as LEDGER fallback (DIV 4 — OPS & FINANCE)
 ```
+**Nota**: si `gemma4:e4b` o `deepseek-r1:8b` no existen en tu Ollama, ejecuta `ollama list` y reemplaza los tags por los más cercanos disponibles, luego actualiza los `fallback_model` correspondientes en el seed (FASE 1).
 
 ### 0.3 — Crear proyecto
 ```bash
@@ -88,7 +90,9 @@ npx shadcn@latest add card button input badge tabs table dialog \
 # Core
 npm install @supabase/supabase-js @pixi/react pixi.js@^8.0.0 \
   bullmq ioredis zustand socket.io socket.io-client recharts \
-  lucide-react react-markdown @mastra/core @mastra/engine
+  lucide-react react-markdown node-cron
+# NOTE: Mastra removed — this build uses BullMQ + node-cron directly. The conversation
+# engine (FASE 3) and orchestrator (FASE 4) call OpenRouter via fetch, no Mastra needed.
 
 # Dev
 npm install -D @types/node tsx
@@ -282,9 +286,9 @@ const ZONES = {
 };
 ```
 
-Cada agente se posiciona random dentro de su zona.
+Cada agente se posiciona random dentro de su zona (la función `seed()` en el ANEXO ya hace esto usando el objeto `ZONES`).
 
-Incluir los 50 agentes con los datos completos del roster FASE 2 v5.0 (ver documento adjunto MASTER_v6_FINAL.md para los datos).
+**Los datos completos de los 50 agentes están al final de este mismo archivo**, en la sección **"ANEXO: SEED DATA COMPLETO (TypeScript)"** (busca `PARTE 5B`). Copiar el array `AGENTS` completo + las constantes `ZONES` y la función `seed()` al archivo `scripts/seed-agents.ts`. NO buscar en otros documentos — todo lo necesario está aquí.
 
 ### 1.3 — Seed schedules
 ```typescript
@@ -345,21 +349,31 @@ interface CallResult {
   latency_ms: number;
 }
 
-// Model pricing table (per million tokens)
+// Model pricing table (per million tokens, USD).
+// Sourced from MASTER_v6_FINAL.md (Abril 7, 2026) — keep in sync with that doc.
 const PRICING: Record<string, { input: number; output: number }> = {
+  // Coding primaries (FREE)
   "minimax/minimax-m2.5:free": { input: 0, output: 0 },
   "qwen/qwen3-coder-480b-a35b:free": { input: 0, output: 0 },
   "qwen/qwen3.6-plus:free": { input: 0, output: 0 },
+  // Workhorse paid
   "x-ai/grok-4.1-fast": { input: 0.20, output: 0.50 },
+  // Premium (only PROPUESTA + SOCIAL)
   "anthropic/claude-sonnet-4.6": { input: 3.00, output: 15.00 },
+  "anthropic/claude-opus-4.6": { input: 15.00, output: 75.00 },        // escalation only (PROPUESTA → investor pitches)
+  // Gemini family
   "google/gemini-2.5-flash-lite": { input: 0.10, output: 0.40 },
+  "google/gemini-2.5-flash": { input: 0.30, output: 2.50 },
+  "google/gemini-3.1-pro-preview": { input: 1.25, output: 12.00 },     // PROPUESTA fallback, COMPETE/APEX escalation
+  // OpenAI escalation
+  "openai/gpt-4.1-mini": { input: 0.40, output: 1.60 },                // PIXEL escalation (frontend visual quality)
+  // Mid/budget
   "mistralai/mistral-large-2411": { input: 0.50, output: 1.50 },
   "deepseek/deepseek-v3.2": { input: 0.26, output: 0.38 },
   "mistralai/mistral-small-3.2-24b-instruct": { input: 0.075, output: 0.20 },
   "ibm-granite/granite-4.0-h-micro": { input: 0.017, output: 0.11 },
   "mistralai/mistral-nemo": { input: 0.02, output: 0.04 },
-  "google/gemini-2.5-flash": { input: 0.30, output: 2.50 },
-  // Free models
+  // Free fallbacks
   "meta-llama/llama-3.3-70b-instruct:free": { input: 0, output: 0 },
   "openai/gpt-oss-120b:free": { input: 0, output: 0 },
   "z-ai/glm-4.5-air:free": { input: 0, output: 0 },
@@ -367,7 +381,13 @@ const PRICING: Record<string, { input: number; output: number }> = {
 };
 
 function calculateCost(model: string, tokensIn: number, tokensOut: number): number {
-  const price = PRICING[model] || { input: 1, output: 2 }; // Default expensive if unknown
+  const price = PRICING[model];
+  if (!price) {
+    // Unknown model: assume PREMIUM pricing so the cost-controller errs on the side of stopping the agent.
+    // Update PRICING above when adding new models — do NOT silently rely on this default.
+    console.warn(`⚠️  PRICING missing for "${model}" — using premium default ($15/$75 per M)`);
+    return (tokensIn * 15 / 1_000_000) + (tokensOut * 75 / 1_000_000);
+  }
   return (tokensIn * price.input / 1_000_000) + (tokensOut * price.output / 1_000_000);
 }
 
@@ -826,6 +846,166 @@ const TRIGGER_RULES = [
 
 ---
 
+## FASE 4.5: SPRITE FACTORY (assets procedurales para FASE 5)
+
+**Por qué existe esta fase**: FASE 5 (Pixel World) necesita 50 sprites pixel-art, uno por agente. En lugar de descargar/comprar un sprite sheet externo, los generamos en código con primitivas de PixiJS. Cero dependencias externas, cero trabajo de assets, y cada agente queda con el color de su división automáticamente.
+
+### 4.5.1 — Sprite factory
+Crear `src/components/pixel-world/sprite-factory.ts`:
+
+```typescript
+import { Container, Graphics, Text, TextStyle } from 'pixi.js';
+
+// 8 colores de división (deben coincidir con BLUEPRINT_DASHBOARD)
+export const DIVISION_COLORS: Record<number, number> = {
+  1: 0x06b6d4, // CODE OPS — cyan
+  2: 0x10b981, // REVENUE — green
+  3: 0x8b5cf6, // BRAND — violet
+  4: 0xf59e0b, // OPS/FIN — amber
+  5: 0xec4899, // PRODUCT — pink
+  6: 0xf97316, // AI OPS — orange
+  7: 0x3b82f6, // STRATEGY — blue
+  8: 0xa855f7, // COMMS — purple
+};
+
+const SKIN = 0xf5deb3;
+const NAME_STYLE = new TextStyle({
+  fontFamily: 'Inter, sans-serif',
+  fontSize: 7,
+  fontWeight: '600',
+  fill: 0x111827,
+  align: 'center',
+});
+
+export interface AgentSprite extends Container {
+  agentCode: string;
+  division: number;
+  legs: Graphics;
+  body: Graphics;
+  head: Graphics;
+  nameLabel: Text;
+  walkFrame: number;
+  speechBubble?: Container;
+}
+
+/**
+ * Build a 12×16px pixel character (rendered at 2x scale = 24×32 on screen).
+ *  - Head 4×4 (skin tone)
+ *  - Body 4×8 (division color)
+ *  - Legs 2×4 (alternate frames for walk animation)
+ *  - Name label below in 7px Inter
+ */
+export function createAgentSprite(code: string, division: number): AgentSprite {
+  const container = new Container() as AgentSprite;
+  container.agentCode = code;
+  container.division = division;
+  container.walkFrame = 0;
+
+  const color = DIVISION_COLORS[division] ?? 0x6b7280;
+
+  // Head 4×4
+  const head = new Graphics().rect(4, 0, 4, 4).fill(SKIN);
+  // Body 4×8
+  const body = new Graphics().rect(4, 4, 4, 8).fill(color);
+  // Legs 2×4 (frame 0)
+  const legs = new Graphics()
+    .rect(4, 12, 2, 4).fill(color)
+    .rect(6, 12, 2, 4).fill(color);
+
+  container.head = head;
+  container.body = body;
+  container.legs = legs;
+  container.addChild(legs, body, head);
+
+  // Scale 2x for screen visibility
+  container.scale.set(2);
+
+  // Name label
+  const label = new Text({ text: code, style: NAME_STYLE });
+  label.anchor.set(0.5, 0);
+  label.position.set(8, 17);   // centered below feet
+  label.scale.set(0.5);        // counter-scale to keep text crisp
+  container.nameLabel = label;
+  container.addChild(label);
+
+  return container;
+}
+
+/**
+ * Cycle through 2 walk frames. Call from your animation tick (every 8 frames or so).
+ */
+export function tickWalkAnimation(sprite: AgentSprite) {
+  sprite.walkFrame = (sprite.walkFrame + 1) % 2;
+  sprite.legs.clear();
+  const color = DIVISION_COLORS[sprite.division] ?? 0x6b7280;
+  if (sprite.walkFrame === 0) {
+    sprite.legs.rect(4, 12, 2, 4).fill(color).rect(6, 12, 2, 4).fill(color);
+  } else {
+    sprite.legs.rect(4, 13, 2, 3).fill(color).rect(6, 11, 2, 4).fill(color);
+  }
+}
+
+/**
+ * Show a speech bubble above the sprite while it "talks".
+ * The bubble auto-attaches as a child container and follows the sprite.
+ */
+export function showSpeechBubble(sprite: AgentSprite, text: string) {
+  hideSpeechBubble(sprite);
+  const bubble = new Container();
+
+  const bg = new Graphics()
+    .roundRect(-2, -10, Math.max(40, text.length * 3), 8, 2)
+    .fill(0xffffff)
+    .stroke({ color: 0xe5e7eb, width: 0.5 });
+
+  const txt = new Text({
+    text: text.length > 30 ? text.slice(0, 27) + '…' : text,
+    style: new TextStyle({ fontFamily: 'Inter', fontSize: 5, fill: 0x111827 }),
+  });
+  txt.position.set(0, -9);
+
+  bubble.addChild(bg, txt);
+  sprite.addChild(bubble);
+  sprite.speechBubble = bubble;
+}
+
+export function hideSpeechBubble(sprite: AgentSprite) {
+  if (sprite.speechBubble) {
+    sprite.removeChild(sprite.speechBubble);
+    sprite.speechBubble.destroy({ children: true });
+    sprite.speechBubble = undefined;
+  }
+}
+```
+
+### 4.5.2 — Test rápido del sprite factory
+Crear `scripts/test-sprite.ts`:
+
+```typescript
+import { Application } from 'pixi.js';
+import { createAgentSprite } from '../src/components/pixel-world/sprite-factory';
+
+const app = new Application();
+await app.init({ width: 800, height: 400, background: 0xffffff });
+
+// Render one sprite per division to verify all 8 colors work
+const codes = ['APEX', 'HUNTER', 'SOCIAL', 'LEDGER', 'PRODUCTO', 'ROUTER', 'COMPETE', 'DIGEST'];
+codes.forEach((code, i) => {
+  const sprite = createAgentSprite(code, i + 1);
+  sprite.position.set(40 + i * 90, 100);
+  app.stage.addChild(sprite);
+});
+console.log('✅ 8 sprites rendered, one per division');
+```
+
+### CHECKPOINT FASE 4.5
+- [ ] `src/components/pixel-world/sprite-factory.ts` creado
+- [ ] `npx tsx scripts/test-sprite.ts` corre sin errores
+- [ ] FASE 5 puede importar `createAgentSprite` y construir los 50 personajes
+- [ ] Cada división tiene un color distinto y visible
+
+---
+
 ## FASE 5: PIXEL WORLD (PixiJS)
 
 ### 5.1 — Setup pixi-react
@@ -925,6 +1105,77 @@ Panel derecho del pixel world con:
 
 ---
 
+## FASE 6.5: OPENCLAW GATEWAY (prerrequisito de WhatsApp)
+
+**Por qué existe esta fase**: FASE 7.2 envía notifications de WhatsApp a través del gateway de OpenClaw, pero ninguna fase anterior lo instala. Sin este paso, FASE 7 falla en runtime. Si Javier no quiere WhatsApp en este momento, puede SKIP esta fase y FASE 7.2 — el dashboard funciona perfectamente sin notifications.
+
+### 6.5.1 — Instalar OpenClaw global
+```bash
+npm install -g openclaw@latest
+openclaw --version   # debe imprimir versión
+```
+
+### 6.5.2 — Inicializar workspace
+```bash
+mkdir -p ~/.openclaw/workspace/skills
+
+cat > ~/.openclaw/openclaw.json << 'EOF'
+{
+  "gateway": {
+    "host": "127.0.0.1",
+    "port": 18789
+  },
+  "agent": {
+    "model": "qwen/qwen3.6-plus:free",
+    "fallbackModels": ["meta-llama/llama-3.3-70b-instruct:free"],
+    "systemPrompt": "Eres el asistente AI de Javier Cámara, founder en Mérida, Yucatán. Empresas: Kairotec, atiende.ai, Opero, HatoAI, Moni AI, SELLO. Habla en español mexicano. Cuando recibas una notificación del Agent Command Center, respondes solo si Javier te lo pide explícitamente."
+  },
+  "channels": {
+    "whatsapp": {
+      "allowFrom": []
+    }
+  },
+  "llmProviders": {
+    "openrouter": {
+      "apiKey": "OPENROUTER_API_KEY_AQUI",
+      "baseUrl": "https://openrouter.ai/api/v1"
+    },
+    "ollama": {
+      "baseUrl": "http://localhost:11434"
+    }
+  }
+}
+EOF
+```
+
+**Pedir al usuario**:
+1. Reemplazar `OPENROUTER_API_KEY_AQUI` con la key real (la misma de FASE 0.6).
+2. Llenar `channels.whatsapp.allowFrom` con sus números autorizados, formato `+521XXXXXXXXXX`. **No invertir números**: solo Javier puede agregar los suyos.
+
+### 6.5.3 — Arrancar el gateway
+```bash
+openclaw start &
+sleep 2
+curl -s http://localhost:18789/health
+# Debe imprimir: {"status":"ok"}
+```
+
+### 6.5.4 — Vincular WhatsApp (escanear QR una sola vez)
+```bash
+openclaw whatsapp:link
+```
+Imprime un QR en la terminal. Javier lo escanea con WhatsApp móvil → Settings → Linked devices.
+
+### CHECKPOINT FASE 6.5
+- [ ] `openclaw --version` imprime versión
+- [ ] `curl localhost:18789/health` → `{"status":"ok"}`
+- [ ] `~/.openclaw/openclaw.json` tiene la API key real
+- [ ] `allowFrom` tiene al menos un número autorizado
+- [ ] WhatsApp QR escaneado y `openclaw status` reporta sesión activa
+- [ ] Mensaje de prueba enviado: `curl -X POST localhost:18789/send -d '{"to":"+521XXX","text":"test"}'` → recibido en WhatsApp
+
+---
+
 ## FASE 7: GHOST MODE + WHATSAPP
 
 ### 7.1 — Ghost mode
@@ -998,15 +1249,16 @@ Crear cron job que el primer día de cada mes resetea monthly_spent a 0 para tod
 
 ### CHECKPOINT FINAL
 - [ ] Reiniciar Mac Mini → sistema arranca automáticamente
-- [ ] localhost:3000 muestra pixel world con 50 agentes
+- [ ] localhost:3000 muestra pixel world con 50 agentes (50 sprites únicos del sprite-factory)
 - [ ] Agentes conversan autónomamente cada ~12 segundos
 - [ ] Conversaciones se guardan en DB
 - [ ] Tasks se generan de conversaciones
 - [ ] Costs se trackean en tiempo real
 - [ ] Calendar muestra 13 schedules
 - [ ] Ghost mode funciona en pixel world
+- [ ] OpenClaw Gateway corriendo en localhost:18789 (`curl /health` → ok)
 - [ ] WhatsApp envía notifications para decisiones/urgencias
-- [ ] Budget cap detiene agentes cuando se excede
+- [ ] Budget cap detiene agentes cuando se excede (PROPUESTA y SOCIAL respetan los $18/mes c/u)
 - [ ] El sistema es una EMPRESA VIRTUAL autónoma 🦞
 -e 
 
@@ -1821,7 +2073,7 @@ const AGENTS: AgentSeed[] = [
   // DIVISIONS 4-8 (remaining 22 agents)
   // ============================================
   // DIV 4 — OPS & FINANCE
-  { code: "LEDGER", name: "Bookkeeping", division: 4, division_name: "Ops & Finance", description: "Transaction categorization, reconciliation", primary_model: "ollama/qwen3:8b", fallback_model: "ollama/deepseek-r1:8b-qwen3", escalation_model: "google/gemini-2.5-flash-lite", tier: "LOCAL", monthly_cost: 0.00, temperature: 0.2, max_tokens: 4096, system_prompt: "You are LEDGER. Categorize transactions: Ingreso, Gasto Operativo, COGS, Marketing, Tech. Mexican accounting. Flag unusual items. LOCAL — data never leaves Mac Mini.", triggers: ["contabilidad", "transacción", "categoriza"] },
+  { code: "LEDGER", name: "Bookkeeping", division: 4, division_name: "Ops & Finance", description: "Transaction categorization, reconciliation", primary_model: "ollama/qwen3:8b", fallback_model: "ollama/deepseek-r1:8b", escalation_model: "google/gemini-2.5-flash-lite", tier: "LOCAL", monthly_cost: 0.00, temperature: 0.2, max_tokens: 4096, system_prompt: "You are LEDGER. Categorize transactions: Ingreso, Gasto Operativo, COGS, Marketing, Tech. Mexican accounting. Flag unusual items. LOCAL — data never leaves Mac Mini.", triggers: ["contabilidad", "transacción", "categoriza"] },
   { code: "FLUJO", name: "Cash Flow Forecast", division: 4, division_name: "Ops & Finance", description: "30/60/90 day projections, scenarios, burn rate", primary_model: "deepseek/deepseek-v3.2", fallback_model: "qwen/qwen3.6-plus:free", escalation_model: "google/gemini-2.5-flash", tier: "BUDGET", monthly_cost: 1.16, temperature: 0.3, max_tokens: 4096, system_prompt: "You are FLUJO. Cash flow projections: 30/60/90 days, burn rate, runway, worst/base/best scenarios. MXN default. Flag negative cash flow dates.", triggers: ["cash flow", "flujo de caja", "proyección"] },
   { code: "FACTURA", name: "Invoice Generation", division: 4, division_name: "Ops & Finance", description: "CFDI-compliant invoices, IVA calculations", primary_model: "mistralai/mistral-small-3.2-24b-instruct", fallback_model: "ibm-granite/granite-4.0-h-micro", escalation_model: "google/gemini-2.5-flash-lite", tier: "BUDGET", monthly_cost: 0.43, temperature: 0.2, max_tokens: 4096, system_prompt: "You are FACTURA. CFDI invoices: RFC, régimen fiscal, uso CFDI, método/forma pago, IVA 16%, retenciones. Structured output for integration.", triggers: ["factura", "invoice", "CFDI"] },
   { code: "FISCAL", name: "Tax Compliance SAT", division: 4, division_name: "Ops & Finance", description: "ISR, IVA, IEPS, retenciones, declaraciones, compliance", primary_model: "google/gemini-2.5-flash-lite", fallback_model: "mistralai/mistral-large-2411", escalation_model: "anthropic/claude-sonnet-4.6", tier: "BUDGET", monthly_cost: 0.70, temperature: 0.3, max_tokens: 4096, system_prompt: "You are FISCAL. Mexican tax: ISR, IVA 16%, IEPS, retenciones, RESICO. Calculate provisionals. Flag deadlines. ALWAYS recommend consulting CP for filing. Javier is CP but double-check helps.", triggers: ["impuestos", "SAT", "ISR", "IVA", "declaración"] },
@@ -1858,31 +2110,61 @@ const AGENTS: AgentSeed[] = [
   { code: "TRADUCE", name: "Translation EN↔ES", division: 8, division_name: "Comms & Language", description: "Professional translation with Mexican Spanish localization", primary_model: "mistralai/mistral-large-2411", fallback_model: "qwen/qwen3.6-plus:free", escalation_model: "anthropic/claude-sonnet-4.6", tier: "BUDGET", monthly_cost: 3.00, temperature: 0.3, max_tokens: 8192, system_prompt: "You are TRADUCE. Professional EN↔ES-MX. Rules: computadora (not ordenador), carro (not coche), celular (not móvil). Preserve tone. Tech terms stay English. Legal: formal register. Marketing: adapt idioms. QA: zero Peninsular leakage.", triggers: ["traduce", "translate", "traducción"] },
 ];
 
+// Pixel world zones (must match FASE 1.2 ZONES). Each agent spawns at a
+// random point inside its division zone, so the canvas isn't all stacked at (0,0).
+const ZONES: Record<number, { x: number; y: number; w: number; h: number }> = {
+  1: { x: 20,  y: 30,  w: 195, h: 145 }, // CODE OPS
+  2: { x: 230, y: 30,  w: 220, h: 145 }, // REVENUE
+  3: { x: 465, y: 30,  w: 130, h: 145 }, // BRAND
+  4: { x: 610, y: 30,  w: 120, h: 145 }, // OPS/FIN
+  5: { x: 20,  y: 200, w: 195, h: 135 }, // PRODUCT
+  6: { x: 230, y: 200, w: 110, h: 135 }, // AI OPS
+  7: { x: 355, y: 200, w: 150, h: 135 }, // STRATEGY
+  8: { x: 520, y: 200, w: 210, h: 135 }, // COMMS
+};
+
 async function seed() {
   console.log(`Seeding ${AGENTS.length} agents...`);
-  
+
   for (const agent of AGENTS) {
+    const zone = ZONES[agent.division];
+    if (!zone) {
+      console.error(`❌ ${agent.code}: invalid division ${agent.division}`);
+      continue;
+    }
+    const x = zone.x + Math.random() * zone.w;
+    const y = zone.y + Math.random() * zone.h;
+
     const { error } = await supabase
       .from('agents')
       .upsert({
         code: agent.code,
         name: agent.name,
         division: agent.division,
+        division_name: agent.division_name,   // FIX: schema requires NOT NULL
         description: agent.description,
         primary_model: agent.primary_model,
         fallback_model: agent.fallback_model,
         escalation_model: agent.escalation_model,
         tier: agent.tier,
+        monthly_budget: agent.monthly_cost,    // FIX: was unset → defaulted to $5 → PROPUESTA/SOCIAL would die at day ~7
+        monthly_spent: 0,
         system_prompt: agent.system_prompt,
         temperature: agent.temperature,
         max_tokens: agent.max_tokens,
-        status: 'active'
+        // Pixel world initial position (FIX: was unset → all 50 agents spawned at 0,0)
+        world_x: x,
+        world_y: y,
+        world_target_x: x,
+        world_target_y: y,
+        world_state: 'idle',
+        status: 'idle',                        // FIX: was 'active', schema uses idle/working/error
       }, { onConflict: 'code' });
-    
+
     if (error) {
       console.error(`❌ Failed to seed ${agent.code}:`, error.message);
     } else {
-      console.log(`✅ ${agent.code} (${agent.tier}) — ${agent.primary_model}`);
+      console.log(`✅ ${agent.code} (${agent.tier}, $${agent.monthly_cost.toFixed(2)}/mo) — ${agent.primary_model}`);
     }
   }
   
