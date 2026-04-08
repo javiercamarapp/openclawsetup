@@ -9,16 +9,19 @@
 #      BOOTSTRAP.md, HEARTBEAT.md, TOOLS.md) — proven from PILOT testing that Qwen-tier models
 #      get hijacked by default boilerplate and respond with meta-commentary. Empty workspace
 #      lets the --message user prompt take full control.
-#   3. Copy ~/.openclaw/agents/main/agent/models.json into the new agent's agent-dir
-#      (OpenClaw's openclaw agents add does NOT populate this file automatically; without it
-#      the agent silently falls back to canned responses). Write agent.json and config.json
-#      with the agent's fixed model ID.
+#   3. Copy ~/.openclaw/agents/main/agent/models.json AND auth-profiles.json into
+#      the new agent's agent-dir. OpenClaw's `agents add` does NOT populate either
+#      file automatically; models.json gates model selection and auth-profiles.json
+#      carries the OpenRouter API key. Without auth-profiles.json the agent cannot
+#      authenticate and silently falls back to canned responses. Write agent.json
+#      and config.json with the agent's fixed model ID.
 #
 # After all 8 agents exist, prints a summary and a verification command for each.
 #
 # Requirements:
 #   - OpenClaw 2026.4.5 gateway running (openclaw gateway status)
-#   - ~/.openclaw/agents/main/agent/models.json with a valid OpenRouter API key
+#   - ~/.openclaw/agents/main/agent/models.json
+#   - ~/.openclaw/agents/main/agent/auth-profiles.json with a valid OpenRouter API key
 #   - Python 3 (for JSON parsing, pre-installed on macOS)
 #   - jq is NOT required — we use Python
 #
@@ -63,9 +66,18 @@ if [[ ! -f "$MAIN_MODELS_JSON" ]]; then
   exit 1
 fi
 
+MAIN_AUTH_PROFILES="$HOME/.openclaw/agents/main/agent/auth-profiles.json"
+if [[ ! -f "$MAIN_AUTH_PROFILES" ]]; then
+  echo "❌ Main agent auth-profiles.json not found: $MAIN_AUTH_PROFILES"
+  echo "   This file carries the OpenRouter API key. Run 'openclaw onboard' and"
+  echo "   re-enter your provider credentials to regenerate it."
+  exit 1
+fi
+
 echo "🦞 OpenClaw 8-agent provisioner"
 echo "   Mapping: $MAPPING_JSON"
-echo "   Source of models.json (copied to each agent): $MAIN_MODELS_JSON"
+echo "   Source models.json       (copied to each agent): $MAIN_MODELS_JSON"
+echo "   Source auth-profiles.json (copied to each agent): $MAIN_AUTH_PROFILES"
 [[ "$FORCE" == "1" ]] && echo "   FORCE=1 → will delete existing agents before recreating"
 [[ "$DRY_RUN" == "1" ]] && echo "   DRY_RUN=1 → no mutations"
 echo
@@ -155,12 +167,16 @@ print(f'     🗑  Wiped {count} .md files from workspace')
 "
   fi
 
-  # 3. Populate agent-dir with models.json (copied from main) + agent.json + config.json
+  # 3. Populate agent-dir with models.json + auth-profiles.json (copied from main)
+  #    + agent.json + config.json. Both models.json AND auth-profiles.json are
+  #    required — the latter carries the OpenRouter API key, without it the
+  #    agent silently falls back to canned responses.
   mkdir -p "$AGENT_DIR"
   cp "$MAIN_MODELS_JSON" "$AGENT_DIR/models.json"
+  cp "$MAIN_AUTH_PROFILES" "$AGENT_DIR/auth-profiles.json"
   echo "{\"model\": \"$MODEL\"}" > "$AGENT_DIR/agent.json"
   echo "{\"model\": \"$MODEL\"}" > "$AGENT_DIR/config.json"
-  echo "     ✅ agent-dir populated (models.json copied + agent.json/config.json written)"
+  echo "     ✅ agent-dir populated (models.json + auth-profiles.json copied, agent.json/config.json written)"
 
   CREATED=$((CREATED+1))
 done
