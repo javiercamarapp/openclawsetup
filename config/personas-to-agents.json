@@ -1,0 +1,111 @@
+{
+  "version": "1.0",
+  "source": "Derived from config/skills.json post-audit + OpenRouter catalog validation",
+  "date": "2026-04-08",
+  "description": "Maps the 50 persona codes to 8 OpenClaw isolated agents. Each agent has a fixed model (OpenClaw 2026.4.5 does not support per-call --model override on openclaw agent CLI, only cron jobs). Personas within the same agent share a model per this mapping but retain their distinct system_prompts from skills.json, injected via --message at invocation time.",
+  "notes": [
+    "Relaxations vs audit: LEGAL moves from mistral-large-2411 to grok-4.1-fast (cheaper, competitive LegalBench). FORGE/SWIFT/DEPLOY move from qwen3-coder:free to minimax-m2.5:free (MiniMax 80.2% SWE-bench > Qwen Coder 66.5%, actual improvement). BENCHMARKER/TENDENCIA move from gpt-oss-120b:free to stepfun-flash:free (downgrade). METRICS moves from deepseek-v3.2 to stepfun-flash:free (downgrade, deepseek was stronger reasoner). DEEP-RESEARCH moves from gemini-2.5-flash to stepfun-flash:free (significant downgrade, flash had GPQA 82.8%). SPLIT moves from llama-3.3-70b:free to stepfun-flash:free (sidegrade). FACTURA/COBRO move from mistral-small-3.2 to stepfun-flash:free (sidegrade, both cheap). AI-MONITOR moves from llama3.1:8b to qwen3:8b (minor, both local 8B).",
+    "Cost impact: Total monthly cost drops from $57.42 (audit) to ~$46 due to free-tier consolidation of previously-paid personas (METRICS, DEEP-RESEARCH, FACTURA, COBRO, LEGAL). Quality relaxations noted above should be monitored; promote problematic agents to paid tier (e.g., cheap-misc → deepseek/deepseek-v3.2) if quality insufficient.",
+    "Model IDs verified against OpenRouter API on 2026-04-08."
+  ],
+  "agents": {
+    "premium": {
+      "model": "anthropic/claude-sonnet-4.6",
+      "personas": [
+        "PROPUESTA",
+        "SOCIAL"
+      ],
+      "description": "Premium reasoning + creative writing (Claude Sonnet 4.6)"
+    },
+    "grok": {
+      "model": "x-ai/grok-4.1-fast",
+      "personas": [
+        "HUNTER",
+        "VOZ",
+        "RETAIN",
+        "COMPETE",
+        "INVESTOR",
+        "MEDIA",
+        "ESCUCHA",
+        "PLUMA",
+        "LEGAL"
+      ],
+      "description": "Workhorse cheap paid for sales, ops, legal (Grok 4.1 Fast)"
+    },
+    "qwen-free": {
+      "model": "qwen/qwen3-next-80b-a3b-instruct:free",
+      "personas": [
+        "FILTER",
+        "FISCAL",
+        "FLUJO",
+        "LEDGER",
+        "OPORTUNIDAD",
+        "PIPELINE",
+        "PRIORITY",
+        "PRODUCTO",
+        "RADAR",
+        "SHIELD",
+        "TALENTO",
+        "TRADUCE"
+      ],
+      "description": "Free 80b general reasoning for finance/ops (Qwen 3 Next 80B)"
+    },
+    "code-free": {
+      "model": "minimax/minimax-m2.5:free",
+      "personas": [
+        "APEX",
+        "PIXEL",
+        "QUALITY",
+        "TRIAGE",
+        "FORGE",
+        "SWIFT",
+        "DEPLOY"
+      ],
+      "description": "Free SWE-bench leader for code generation (MiniMax M2.5)"
+    },
+    "gemini-lite": {
+      "model": "google/gemini-2.5-flash-lite",
+      "personas": [
+        "BIENVENIDA",
+        "CORREO",
+        "DIGEST",
+        "DOCS",
+        "PROMPT-OPT",
+        "RANKING"
+      ],
+      "description": "Cheap general purpose for onboarding/comms (Gemini 2.5 Flash Lite)"
+    },
+    "cheap-misc": {
+      "model": "stepfun/step-3.5-flash:free",
+      "personas": [
+        "NEXUS",
+        "ROUTER",
+        "BENCHMARKER",
+        "TENDENCIA",
+        "SPLIT",
+        "METRICS",
+        "FACTURA",
+        "COBRO",
+        "DEEP-RESEARCH"
+      ],
+      "description": "Free tool-calling for routing/templates/research (Stepfun Step-3.5 Flash)"
+    },
+    "local-text": {
+      "model": "ollama/qwen3:8b",
+      "personas": [
+        "INBOX",
+        "PLANTA",
+        "WATCHTOWER",
+        "AI-MONITOR"
+      ],
+      "description": "Local Ollama for privacy-sensitive monitoring (Qwen 3 8B)"
+    },
+    "local-vision": {
+      "model": "ollama/gemma4:e4b",
+      "personas": [
+        "VISUAL"
+      ],
+      "description": "Local multimodal for image/vision tasks (Gemma 4 E4B)"
+    }
+  }
+}
