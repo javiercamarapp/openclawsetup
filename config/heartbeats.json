@@ -1,0 +1,124 @@
+{
+  "_comment": "13 heartbeats (cron jobs) para OpenClaw. Copia este archivo a ~/.openclaw/heartbeats.json y reinicia el gateway con 'openclaw gateway restart'. Todos los skills referenciados deben existir primero en ~/.openclaw/workspace/skills/ (corre create_skills.sh antes).",
+  "_timezone": "America/Merida",
+  "_cron_format": "minute hour day-of-month month day-of-week (standard crontab format, Mon=1 Sun=7)",
+  "heartbeats": [
+    {
+      "id": "watchtower-health",
+      "skill": "watchtower",
+      "schedule": "*/5 * * * *",
+      "prompt": "Health check completo: CPU, RAM, disk, Ollama status, OpenClaw Gateway uptime, OpenRouter credit balance, agent error rates. Reporta solo si hay algo fuera de rango.",
+      "channel": "internal",
+      "description": "Monitor cada 5 minutos",
+      "enabled": true
+    },
+    {
+      "id": "radar-trends",
+      "skill": "radar",
+      "schedule": "0 6 * * *",
+      "prompt": "Escanea tendencias matutinas de AI, FinTech, LATAM startups, AgTech. Output: top 3 oportunidades de contenido para Javier con ángulo único, formato sugerido, urgencia.",
+      "channel": "internal",
+      "description": "Tendencias diarias 6 AM",
+      "enabled": true
+    },
+    {
+      "id": "digest-morning",
+      "skill": "digest",
+      "schedule": "0 7 * * 1-5",
+      "prompt": "Genera briefing matutino: top 3 prioridades de hoy, decisiones pendientes, resumen de actividad de agentes de ayer, snapshot financiero, alertas y riesgos. Lunes incluye objetivos semanales. Viernes incluye recap + preview próxima semana.",
+      "channel": "whatsapp",
+      "description": "Briefing matutino lun-vie 7 AM",
+      "enabled": true
+    },
+    {
+      "id": "inbox-triage",
+      "skill": "inbox",
+      "schedule": "0 7 * * 1-5",
+      "prompt": "Triage de emails pendientes en la bandeja de entrada. Clasifica: urgente/importante/normal/spam. Top 5 con acciones sugeridas. Rutea a los agentes correctos (facturas→FACTURA, legal→LEGAL, oportunidades→HUNTER).",
+      "channel": "internal",
+      "description": "Email triage lun-vie 7 AM",
+      "enabled": true
+    },
+    {
+      "id": "hunter-leads",
+      "skill": "hunter",
+      "schedule": "0 9,11,14,16 * * 1-5",
+      "prompt": "Busca 3 leads nuevos para atiende.ai en Mérida y zona metropolitana. Restaurantes, ecommerce, clínicas, inmobiliarias con alto volumen de WhatsApp. BANT qualify. Pasa los HOT a FILTER para scoring.",
+      "channel": "internal",
+      "description": "Prospección 4x/día lun-vie",
+      "enabled": true
+    },
+    {
+      "id": "cobro-weekly",
+      "skill": "cobro",
+      "schedule": "0 10 * * 1",
+      "prompt": "Revisa facturas con más de 7 días de atraso. Genera recordatorios en español mexicano según nivel de atraso (día 1 amistoso, día 7 follow-up, día 15 formal, día 30 final). Incluye folio de factura, monto, y métodos de pago (SPEI, tarjeta, Oxxo).",
+      "channel": "whatsapp",
+      "description": "Cobranza semanal lunes 10 AM",
+      "enabled": true
+    },
+    {
+      "id": "ai-monitor-costs",
+      "skill": "ai-monitor",
+      "schedule": "0 12,19 * * *",
+      "prompt": "Reporte de costos y salud de los 50 agentes. Por agente: request count, error rate, avg latency, daily/monthly cost. Flag: agentes con >10% error rate, sobrecosto vs budget, latencia >10s. Alerta si OpenRouter credits < $20.",
+      "channel": "internal",
+      "description": "Cost + health report 2x/día",
+      "enabled": true
+    },
+    {
+      "id": "escucha-social",
+      "skill": "escucha",
+      "schedule": "0 15 * * 1-5",
+      "prompt": "Escanea reviews de apps (atiende.ai, Moni AI), menciones sociales (Twitter/X, LinkedIn), y support tickets del día. Clasifica sentimiento. Extrae: feature requests, quejas, elogios, comparaciones vs competidores. Resumen accionable.",
+      "channel": "internal",
+      "description": "Social listening lun-vie 3 PM",
+      "enabled": true
+    },
+    {
+      "id": "metrics-snapshot",
+      "skill": "metrics",
+      "schedule": "0 17 * * 1-5",
+      "prompt": "Snapshot de KPIs del día: MRR, nuevos clientes, churn, CAC, LTV, conversiones del funnel, retention. Compara vs ayer y vs la semana pasada. Flag anomalías. Números exactos, no aproximaciones.",
+      "channel": "internal",
+      "description": "KPIs diarios lun-vie 5 PM",
+      "enabled": true
+    },
+    {
+      "id": "social-post",
+      "skill": "social",
+      "schedule": "0 20 * * 1-5",
+      "prompt": "Basándote en los trends que RADAR detectó hoy y las conversaciones de ESCUCHA, sugiere un post de LinkedIn para mañana. Voz de Javier: direct, practical, no-BS. 70% español, 30% inglés tech. Hook <15 palabras, 3-5 párrafos, dato concreto, pregunta de engagement, 3-5 hashtags.",
+      "channel": "whatsapp",
+      "description": "Sugerencia de post lun-vie 8 PM",
+      "enabled": true
+    },
+    {
+      "id": "priority-backlog",
+      "skill": "priority",
+      "schedule": "0 10 * * 1",
+      "prompt": "Re-ranking del backlog de features usando RICE (Reach, Impact, Confidence, Effort). Score 1-10 cada uno, composite, rank. Factor: impacto en revenue, demanda de usuarios, alineación estratégica, dependencias técnicas. Output: top 10 features para la semana.",
+      "channel": "internal",
+      "description": "Priorización semanal lunes 10 AM",
+      "enabled": true
+    },
+    {
+      "id": "compete-intel",
+      "skill": "compete",
+      "schedule": "0 9 * * 3",
+      "prompt": "Intel competitivo semanal. Para atiende.ai: Yalo, Gus Chat, Treble. Cambios en pricing, nuevas features, funding, cambios de equipo, movimientos de marketing. Para Kairotec: agencias locales de AI. Para Moni AI: Coru, Fintual, Albo. SWOT. War-game: si X lanza Y, nuestra respuesta?",
+      "channel": "whatsapp",
+      "description": "Intel competitivo miércoles 9 AM",
+      "enabled": true
+    },
+    {
+      "id": "benchmarker-eval",
+      "skill": "benchmarker",
+      "schedule": "0 17 * * 5",
+      "prompt": "Evalúa calidad de respuestas de los 5 modelos más usados esta semana. Mismo prompt → 2+ modelos → compara accuracy, coherence, instruction following, format compliance, speed. Reporte: modelos que mejoraron/degradaron, swaps recomendados, impacto en costo.",
+      "channel": "internal",
+      "description": "Eval de modelos viernes 5 PM",
+      "enabled": true
+    }
+  ]
+}
