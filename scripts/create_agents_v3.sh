@@ -5,10 +5,6 @@
 #
 # v3 replaces create_agents.sh. Key differences:
 #   - 25 agents instead of 8 (see _meta in the JSON).
-#   - Does NOT call `openclaw agents add`. In v3 testing we confirmed the
-#     OpenClaw 2026.4.5 CLI fights us on per-agent model pinning; manual
-#     filesystem provisioning is more reliable. Gateway picks up new agents
-#     via directory scan on restart.
 #   - Data-driven: adding an agent means editing the JSON, re-running this
 #     script. No bash arrays to maintain in parallel.
 #   - Built-in PRUNE phase: deletes obsolete agents that are no longer in
@@ -17,14 +13,31 @@
 #   - Skips agents whose JSON entry has `_note` containing "RESERVED" —
 #     those are placeholders for future rate-limit fallback, not agents
 #     to provision now (currently: hermes-405b-paid).
+#   - State-aware idempotency: detects new / healthy / force-recreate / orphan
+#     (dir on disk without registration) / ghost (registered without dir) and
+#     takes the right action per state.
 #
-# For each provisioned agent:
-#   1. Create the agent dir tree (~/.openclaw/agents/<name>/{agent,workspace,sessions}).
-#   2. Copy ~/.openclaw/agents/main/agent/models.json AND auth-profiles.json
-#      into the new agent's agent-dir. Both are required — auth-profiles.json
-#      carries the OpenRouter API key; without it the agent silently falls
-#      back to canned responses (same symptom reproduced in the Bloque 2 PILOT).
-#   3. Write agent.json with {"id", "model"} and config.json with {}.
+# CORRECTION (commit post-v3 first-run): an earlier version of this script
+# bypassed `openclaw agents add` and did manual mkdir + cp, based on a bad
+# lead from the original CLAUDE_CODE_INSTRUCTIONS_v3.md. Empirically proven
+# wrong: OpenClaw 2026.4.5 uses ~/.openclaw/openclaw.json as the registry,
+# and `openclaw agents list` ignores any directory that hasn't been added via
+# the CLI. The fix below is to go through `openclaw agents add` like the
+# original scripts/create_agents.sh (from Bloque 2) did, then overlay
+# auth-profiles.json on top — because `agents add` doesn't populate that file
+# and without it the agent silently falls back to canned responses.
+#
+# For each provisioned agent (after cleanup of any stale state):
+#   1. openclaw agents add <name> --model <id> --workspace <ws> --agent-dir <ad>
+#      --non-interactive  → registers the agent in ~/.openclaw/openclaw.json
+#      and creates workspace + agent-dir scaffolding.
+#   2. Wipe the seeded workspace .md boilerplate (AGENTS.md, SOUL.md, IDENTITY.md,
+#      USER.md, BOOTSTRAP.md, HEARTBEAT.md, TOOLS.md). Bloque 2 PILOT proved
+#      Qwen-tier models get hijacked by the default "read memory, continue from
+#      where you left off" scaffold and respond with meta-commentary.
+#   3. Overlay ~/.openclaw/agents/main/agent/auth-profiles.json into the new
+#      agent's agent-dir (required — carries the OpenRouter API key).
+#   4. Overlay models.json defensively (cheap insurance against canned fallback).
 #
 # After provisioning, kickstart the gateway and run a smoke test against 5
 # representative agents (configurable).
@@ -203,6 +216,14 @@ CREATED=0
 UPDATED=0
 SKIPPED=0
 FAILED=0
+ORPHANS_CLEANED=0
+
+# Capture current registration state once (not per-agent) to avoid N CLI calls.
+# Format from `openclaw agents list`: lines like "  - main (default)" or "  - grok-sales".
+# Extract just the name after "- ".
+REGISTERED_AGENTS=$(openclaw agents list 2>/dev/null | \
+  grep -oE '^[[:space:]]*-[[:space:]]+[a-zA-Z0-9_-]+' | \
+  sed -E 's/^[[:space:]]*-[[:space:]]+//' || true)
 
 while IFS=$'\t' read -r AGENT MODEL; do
   [[ -z "$AGENT" ]] && continue
@@ -210,67 +231,114 @@ while IFS=$'\t' read -r AGENT MODEL; do
   AGENT_DIR_BASE="$AGENTS_DIR/$AGENT"
   AGENT_DIR="$AGENT_DIR_BASE/agent"
   WORKSPACE="$AGENT_DIR_BASE/workspace"
-  SESSIONS="$AGENT_DIR_BASE/sessions"
 
   echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
   echo "🤖 $AGENT"
   echo "   Model: $MODEL"
   echo "   Path:  $AGENT_DIR_BASE"
 
-  EXISTS=0
-  if [[ -d "$AGENT_DIR_BASE" ]]; then
-    EXISTS=1
+  # Detect current state
+  ON_DISK=0
+  [[ -d "$AGENT_DIR_BASE" ]] && ON_DISK=1
+
+  REGISTERED=0
+  if printf '%s\n' "$REGISTERED_AGENTS" | grep -qx "$AGENT"; then
+    REGISTERED=1
   fi
 
-  if [[ "$EXISTS" == "1" && "$FORCE" == "0" ]]; then
-    echo "   ⏭  exists, skipping (FORCE=1 to recreate)"
+  # State dispatch:
+  #   ON_DISK=0, REGISTERED=0 → new          → create
+  #   ON_DISK=1, REGISTERED=1, FORCE=0 → healthy → skip
+  #   ON_DISK=1, REGISTERED=1, FORCE=1 → force-recreate → delete + create
+  #   ON_DISK=1, REGISTERED=0          → orphan         → clean + create (ignores FORCE)
+  #   ON_DISK=0, REGISTERED=1          → ghost          → delete + create (ignores FORCE)
+  STATE="?"; NEEDS_DELETE=0; NEEDS_CREATE=0
+  if [[ "$ON_DISK" == "0" && "$REGISTERED" == "0" ]]; then
+    STATE="new"; NEEDS_CREATE=1
+  elif [[ "$ON_DISK" == "1" && "$REGISTERED" == "1" && "$FORCE" == "0" ]]; then
+    STATE="healthy"
+  elif [[ "$ON_DISK" == "1" && "$REGISTERED" == "1" && "$FORCE" == "1" ]]; then
+    STATE="force-recreate"; NEEDS_DELETE=1; NEEDS_CREATE=1
+  elif [[ "$ON_DISK" == "1" && "$REGISTERED" == "0" ]]; then
+    STATE="orphan (dir on disk, not registered in openclaw.json)"
+    NEEDS_DELETE=1; NEEDS_CREATE=1
+    ORPHANS_CLEANED=$((ORPHANS_CLEANED + 1))
+  elif [[ "$ON_DISK" == "0" && "$REGISTERED" == "1" ]]; then
+    STATE="ghost (registered, dir missing)"
+    NEEDS_DELETE=1; NEEDS_CREATE=1
+  fi
+  echo "   State: $STATE"
+
+  if [[ "$NEEDS_CREATE" == "0" ]]; then
+    echo "   ⏭  healthy, skipping (FORCE=1 to recreate)"
     SKIPPED=$((SKIPPED + 1))
     continue
   fi
 
-  if [[ "$EXISTS" == "1" && "$FORCE" == "1" ]]; then
-    echo "   ⚠️  exists + FORCE=1 → deleting first"
-    if [[ "$DRY_RUN" == "0" ]]; then
-      openclaw agents delete "$AGENT" --force 2>/dev/null || rm -rf "$AGENT_DIR_BASE"
-    fi
-  fi
-
   if [[ "$DRY_RUN" == "1" ]]; then
-    echo "   [dry-run] mkdir + cp models.json + cp auth-profiles.json + write agent.json/config.json"
-    if [[ "$EXISTS" == "1" ]]; then UPDATED=$((UPDATED + 1)); else CREATED=$((CREATED + 1)); fi
+    [[ "$NEEDS_DELETE" == "1" ]] && echo "   [dry-run] clean up existing state"
+    echo "   [dry-run] openclaw agents add + wipe workspace .md + overlay auth-profiles.json + overlay models.json"
+    if [[ "$NEEDS_DELETE" == "1" ]]; then UPDATED=$((UPDATED + 1)); else CREATED=$((CREATED + 1)); fi
     continue
   fi
 
-  # 1. Create the dir tree
-  mkdir -p "$AGENT_DIR" "$WORKSPACE" "$SESSIONS"
+  # Cleanup phase (for force-recreate, orphan, ghost)
+  if [[ "$NEEDS_DELETE" == "1" ]]; then
+    echo "   🗑  cleaning up existing state"
+    # Try CLI delete first (unregisters + trashes dirs). For orphans it will
+    # say "agent not found" and exit non-zero — that's expected.
+    openclaw agents delete "$AGENT" --force >/dev/null 2>&1 || true
+    # Guarantee the on-disk dir is gone even if CLI delete didn't handle it.
+    [[ -d "$AGENT_DIR_BASE" ]] && rm -rf "$AGENT_DIR_BASE"
+  fi
 
-  # 2. Copy the main agent's models.json and auth-profiles.json. Both are
-  #    required — auth-profiles.json carries the OpenRouter API key and
-  #    without it the agent silently returns canned fallback responses.
-  if ! cp "$MAIN_MODELS_JSON" "$AGENT_DIR/models.json"; then
-    echo "   ❌ failed to copy models.json"
+  # 1. Register + create scaffolding via the CLI. This writes to openclaw.json.
+  if ! openclaw agents add "$AGENT" \
+      --model "$MODEL" \
+      --workspace "$WORKSPACE" \
+      --agent-dir "$AGENT_DIR" \
+      --non-interactive; then
+    echo "   ❌ openclaw agents add failed"
     FAILED=$((FAILED + 1))
     continue
   fi
+
+  # 2. Wipe seeded workspace .md boilerplate (Qwen-tier hijack prevention,
+  #    proven necessary in Bloque 2 PILOT testing).
+  if [[ -d "$WORKSPACE" ]]; then
+    WIPED=$(python3 - "$WORKSPACE" <<'PY'
+import sys
+from pathlib import Path
+ws = Path(sys.argv[1])
+n = 0
+for md in ws.glob("*.md"):
+    md.unlink()
+    n += 1
+print(n)
+PY
+)
+    echo "   🗑  wiped $WIPED workspace .md files"
+  fi
+
+  # 3. Overlay auth-profiles.json (carries the OpenRouter API key — required).
   if ! cp "$MAIN_AUTH_PROFILES" "$AGENT_DIR/auth-profiles.json"; then
-    echo "   ❌ failed to copy auth-profiles.json"
+    echo "   ❌ failed to overlay auth-profiles.json"
     FAILED=$((FAILED + 1))
     continue
   fi
 
-  # 3. Write agent.json and config.json
-  cat > "$AGENT_DIR/agent.json" <<AJEOF
-{
-  "id": "$AGENT",
-  "model": "$MODEL"
-}
-AJEOF
-  echo "{}" > "$AGENT_DIR/config.json"
+  # 4. Overlay models.json defensively.
+  cp "$MAIN_MODELS_JSON" "$AGENT_DIR/models.json" 2>/dev/null || true
 
   echo "   ✅ provisioned"
-  if [[ "$EXISTS" == "1" ]]; then UPDATED=$((UPDATED + 1)); else CREATED=$((CREATED + 1)); fi
+  if [[ "$NEEDS_DELETE" == "1" ]]; then UPDATED=$((UPDATED + 1)); else CREATED=$((CREATED + 1)); fi
 
 done <<< "$AGENT_TSV"
+
+if [[ "$ORPHANS_CLEANED" -gt 0 ]]; then
+  echo
+  echo "ℹ️  Cleaned up $ORPHANS_CLEANED orphan agent dir(s) from previous runs."
+fi
 
 echo
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
@@ -319,6 +387,13 @@ echo
 
 echo "━━━ Smoke test (${#SMOKE_TEST_AGENTS[@]} representative agents) ━━━"
 SMOKE_FAILED=0
+
+# Temporarily disable errexit + pipefail so one flaky agent (rate limit, slow
+# cold start, etc) doesn't silently kill the whole script. Without this, the
+# first failing smoke test kills the loop and drops you to a raw shell prompt
+# with no summary — exactly what happened in the first run of v3.
+set +eo pipefail
+
 for AGENT in "${SMOKE_TEST_AGENTS[@]}"; do
   printf "  %-22s " "$AGENT"
   RESPONSE=$(openclaw agent --agent "$AGENT" \
@@ -331,6 +406,8 @@ for AGENT in "${SMOKE_TEST_AGENTS[@]}"; do
     echo "→ $RESPONSE"
   fi
 done
+
+set -eo pipefail
 
 echo
 if [[ "$SMOKE_FAILED" -gt 0 ]]; then
