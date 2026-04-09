@@ -1,150 +1,420 @@
-/**
- * Supabase Database types — Bloque 3 FASE 1
- *
- * Hand-written to match `supabase/migrations/20260409120000_initial_schema.sql`.
- * Regenerate from the live project once the migration is applied:
- *
- *     npx supabase gen types typescript --linked > src/lib/supabase/types.ts
- *
- * Until then this file is the source of truth for type checking. Keep it in
- * sync with the migration by hand.
- */
+export type Json =
+  | string
+  | number
+  | boolean
+  | null
+  | { [key: string]: Json | undefined }
+  | Json[]
 
-export type WorldState = "idle" | "walking" | "talking" | "active";
-
-export type ConvStatus = "active" | "completed" | "interrupted";
-export type ConvTrigger = "heartbeat" | "whatsapp" | "manual" | "ghost";
-
-export type MsgRole = "agent_a" | "agent_b" | "javier";
-
-export type TaskType = "todo" | "decision" | "followup" | "deploy" | "alert";
-export type TaskPriority = "P0" | "P1" | "P2" | "P3";
-export type TaskStatus = "pending" | "in_progress" | "completed" | "cancelled";
-
-export type WorldEventType =
-  | "agent_move"
-  | "conversation_start"
-  | "conversation_end"
-  | "ghost_join"
-  | "ghost_leave"
-  | "agent_state_change";
-
-export interface AgentPosition {
-  code: string;
-  division: number | null;
-  world_x: number;
-  world_y: number;
-  world_target_x: number;
-  world_target_y: number;
-  world_state: WorldState;
-  last_seen_at: string;
-}
-
-export interface ConvLog {
-  id: string;
-  openclaw_session_id: string | null;
-  agent_a_code: string | null;
-  agent_b_code: string | null;
-  trigger_type: ConvTrigger | null;
-  trigger_context: string | null;
-  status: ConvStatus;
-  total_tokens: number;
-  total_cost: number;
-  summary: string | null;
-  started_at: string;
-  ended_at: string | null;
-}
-
-export interface MsgLog {
-  id: string;
-  conv_id: string;
-  speaker: string;
-  role: MsgRole;
-  content: string;
-  model_used: string | null;
-  tokens_in: number;
-  tokens_out: number;
-  cost: number;
-  latency_ms: number | null;
-  created_at: string;
-}
-
-export interface Task {
-  id: string;
-  conv_id: string | null;
-  assigned_to_code: string | null;
-  assigned_to_javier: boolean;
-  type: TaskType;
-  priority: TaskPriority;
-  title: string;
-  description: string | null;
-  status: TaskStatus;
-  due_at: string | null;
-  completed_at: string | null;
-  created_at: string;
-}
-
-export interface CostsLog {
-  id: string;
-  date: string;
-  agent_code: string;
-  model: string;
-  tokens_in: number;
-  tokens_out: number;
-  cost: number;
-  request_count: number;
-  error_count: number;
-}
-
-export interface WorldEvent {
-  id: string;
-  event_type: WorldEventType;
-  payload: Record<string, unknown>;
-  created_at: string;
-}
-
-/**
- * Supabase client generic type — passed as `Database` to `createClient<Database>()`.
- * Minimal shape: rows only, no views, no functions, no enums (those live as TS
- * unions above). When we run `supabase gen types`, this will be replaced with
- * the fully-typed Database shape that Supabase generates.
- */
-export interface Database {
+export type Database = {
+  // Allows to automatically instantiate createClient with right options
+  // instead of createClient<Database, { PostgrestVersion: 'XX' }>(URL, KEY)
+  __InternalSupabase: {
+    PostgrestVersion: "14.5"
+  }
+  graphql_public: {
+    Tables: {
+      [_ in never]: never
+    }
+    Views: {
+      [_ in never]: never
+    }
+    Functions: {
+      graphql: {
+        Args: {
+          extensions?: Json
+          operationName?: string
+          query?: string
+          variables?: Json
+        }
+        Returns: Json
+      }
+    }
+    Enums: {
+      [_ in never]: never
+    }
+    CompositeTypes: {
+      [_ in never]: never
+    }
+  }
   public: {
     Tables: {
       agent_positions: {
-        Row: AgentPosition;
-        Insert: Partial<AgentPosition> & Pick<AgentPosition, "code">;
-        Update: Partial<AgentPosition>;
-      };
+        Row: {
+          code: string
+          division: number | null
+          last_seen_at: string
+          world_state: string
+          world_target_x: number
+          world_target_y: number
+          world_x: number
+          world_y: number
+        }
+        Insert: {
+          code: string
+          division?: number | null
+          last_seen_at?: string
+          world_state?: string
+          world_target_x?: number
+          world_target_y?: number
+          world_x?: number
+          world_y?: number
+        }
+        Update: {
+          code?: string
+          division?: number | null
+          last_seen_at?: string
+          world_state?: string
+          world_target_x?: number
+          world_target_y?: number
+          world_x?: number
+          world_y?: number
+        }
+        Relationships: []
+      }
       conv_log: {
-        Row: ConvLog;
-        Insert: Partial<ConvLog>;
-        Update: Partial<ConvLog>;
-      };
-      msg_log: {
-        Row: MsgLog;
-        Insert: Partial<MsgLog> & Pick<MsgLog, "conv_id" | "speaker" | "role" | "content">;
-        Update: Partial<MsgLog>;
-      };
-      tasks: {
-        Row: Task;
-        Insert: Partial<Task> & Pick<Task, "type" | "priority" | "title">;
-        Update: Partial<Task>;
-      };
+        Row: {
+          agent_a_code: string | null
+          agent_b_code: string | null
+          ended_at: string | null
+          id: string
+          openclaw_session_id: string | null
+          started_at: string
+          status: string
+          summary: string | null
+          total_cost: number
+          total_tokens: number
+          trigger_context: string | null
+          trigger_type: string | null
+        }
+        Insert: {
+          agent_a_code?: string | null
+          agent_b_code?: string | null
+          ended_at?: string | null
+          id?: string
+          openclaw_session_id?: string | null
+          started_at?: string
+          status?: string
+          summary?: string | null
+          total_cost?: number
+          total_tokens?: number
+          trigger_context?: string | null
+          trigger_type?: string | null
+        }
+        Update: {
+          agent_a_code?: string | null
+          agent_b_code?: string | null
+          ended_at?: string | null
+          id?: string
+          openclaw_session_id?: string | null
+          started_at?: string
+          status?: string
+          summary?: string | null
+          total_cost?: number
+          total_tokens?: number
+          trigger_context?: string | null
+          trigger_type?: string | null
+        }
+        Relationships: []
+      }
       costs_log: {
-        Row: CostsLog;
-        Insert: Partial<CostsLog> & Pick<CostsLog, "date" | "agent_code" | "model">;
-        Update: Partial<CostsLog>;
-      };
+        Row: {
+          agent_code: string
+          cost: number
+          date: string
+          error_count: number
+          id: string
+          model: string
+          request_count: number
+          tokens_in: number
+          tokens_out: number
+        }
+        Insert: {
+          agent_code: string
+          cost?: number
+          date: string
+          error_count?: number
+          id?: string
+          model: string
+          request_count?: number
+          tokens_in?: number
+          tokens_out?: number
+        }
+        Update: {
+          agent_code?: string
+          cost?: number
+          date?: string
+          error_count?: number
+          id?: string
+          model?: string
+          request_count?: number
+          tokens_in?: number
+          tokens_out?: number
+        }
+        Relationships: []
+      }
+      msg_log: {
+        Row: {
+          content: string
+          conv_id: string
+          cost: number
+          created_at: string
+          id: string
+          latency_ms: number | null
+          model_used: string | null
+          role: string
+          speaker: string
+          tokens_in: number
+          tokens_out: number
+        }
+        Insert: {
+          content: string
+          conv_id: string
+          cost?: number
+          created_at?: string
+          id?: string
+          latency_ms?: number | null
+          model_used?: string | null
+          role: string
+          speaker: string
+          tokens_in?: number
+          tokens_out?: number
+        }
+        Update: {
+          content?: string
+          conv_id?: string
+          cost?: number
+          created_at?: string
+          id?: string
+          latency_ms?: number | null
+          model_used?: string | null
+          role?: string
+          speaker?: string
+          tokens_in?: number
+          tokens_out?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "msg_log_conv_id_fkey"
+            columns: ["conv_id"]
+            isOneToOne: false
+            referencedRelation: "conv_log"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      tasks: {
+        Row: {
+          assigned_to_code: string | null
+          assigned_to_javier: boolean
+          completed_at: string | null
+          conv_id: string | null
+          created_at: string
+          description: string | null
+          due_at: string | null
+          id: string
+          priority: string
+          status: string
+          title: string
+          type: string
+        }
+        Insert: {
+          assigned_to_code?: string | null
+          assigned_to_javier?: boolean
+          completed_at?: string | null
+          conv_id?: string | null
+          created_at?: string
+          description?: string | null
+          due_at?: string | null
+          id?: string
+          priority: string
+          status?: string
+          title: string
+          type: string
+        }
+        Update: {
+          assigned_to_code?: string | null
+          assigned_to_javier?: boolean
+          completed_at?: string | null
+          conv_id?: string | null
+          created_at?: string
+          description?: string | null
+          due_at?: string | null
+          id?: string
+          priority?: string
+          status?: string
+          title?: string
+          type?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "tasks_conv_id_fkey"
+            columns: ["conv_id"]
+            isOneToOne: false
+            referencedRelation: "conv_log"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       world_events: {
-        Row: WorldEvent;
-        Insert: Partial<WorldEvent> & Pick<WorldEvent, "event_type" | "payload">;
-        Update: Partial<WorldEvent>;
-      };
-    };
-    Views: Record<string, never>;
-    Functions: Record<string, never>;
-    Enums: Record<string, never>;
-  };
+        Row: {
+          created_at: string
+          event_type: string
+          id: string
+          payload: Json
+        }
+        Insert: {
+          created_at?: string
+          event_type: string
+          id?: string
+          payload: Json
+        }
+        Update: {
+          created_at?: string
+          event_type?: string
+          id?: string
+          payload?: Json
+        }
+        Relationships: []
+      }
+    }
+    Views: {
+      [_ in never]: never
+    }
+    Functions: {
+      [_ in never]: never
+    }
+    Enums: {
+      [_ in never]: never
+    }
+    CompositeTypes: {
+      [_ in never]: never
+    }
+  }
 }
+
+type DatabaseWithoutInternals = Omit<Database, "__InternalSupabase">
+
+type DefaultSchema = DatabaseWithoutInternals[Extract<keyof Database, "public">]
+
+export type Tables<
+  DefaultSchemaTableNameOrOptions extends
+    | keyof (DefaultSchema["Tables"] & DefaultSchema["Views"])
+    | { schema: keyof DatabaseWithoutInternals },
+  TableName extends DefaultSchemaTableNameOrOptions extends {
+    schema: keyof DatabaseWithoutInternals
+  }
+    ? keyof (DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"] &
+        DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Views"])
+    : never = never,
+> = DefaultSchemaTableNameOrOptions extends {
+  schema: keyof DatabaseWithoutInternals
+}
+  ? (DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"] &
+      DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Views"])[TableName] extends {
+      Row: infer R
+    }
+    ? R
+    : never
+  : DefaultSchemaTableNameOrOptions extends keyof (DefaultSchema["Tables"] &
+        DefaultSchema["Views"])
+    ? (DefaultSchema["Tables"] &
+        DefaultSchema["Views"])[DefaultSchemaTableNameOrOptions] extends {
+        Row: infer R
+      }
+      ? R
+      : never
+    : never
+
+export type TablesInsert<
+  DefaultSchemaTableNameOrOptions extends
+    | keyof DefaultSchema["Tables"]
+    | { schema: keyof DatabaseWithoutInternals },
+  TableName extends DefaultSchemaTableNameOrOptions extends {
+    schema: keyof DatabaseWithoutInternals
+  }
+    ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
+    : never = never,
+> = DefaultSchemaTableNameOrOptions extends {
+  schema: keyof DatabaseWithoutInternals
+}
+  ? DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"][TableName] extends {
+      Insert: infer I
+    }
+    ? I
+    : never
+  : DefaultSchemaTableNameOrOptions extends keyof DefaultSchema["Tables"]
+    ? DefaultSchema["Tables"][DefaultSchemaTableNameOrOptions] extends {
+        Insert: infer I
+      }
+      ? I
+      : never
+    : never
+
+export type TablesUpdate<
+  DefaultSchemaTableNameOrOptions extends
+    | keyof DefaultSchema["Tables"]
+    | { schema: keyof DatabaseWithoutInternals },
+  TableName extends DefaultSchemaTableNameOrOptions extends {
+    schema: keyof DatabaseWithoutInternals
+  }
+    ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
+    : never = never,
+> = DefaultSchemaTableNameOrOptions extends {
+  schema: keyof DatabaseWithoutInternals
+}
+  ? DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"][TableName] extends {
+      Update: infer U
+    }
+    ? U
+    : never
+  : DefaultSchemaTableNameOrOptions extends keyof DefaultSchema["Tables"]
+    ? DefaultSchema["Tables"][DefaultSchemaTableNameOrOptions] extends {
+        Update: infer U
+      }
+      ? U
+      : never
+    : never
+
+export type Enums<
+  DefaultSchemaEnumNameOrOptions extends
+    | keyof DefaultSchema["Enums"]
+    | { schema: keyof DatabaseWithoutInternals },
+  EnumName extends DefaultSchemaEnumNameOrOptions extends {
+    schema: keyof DatabaseWithoutInternals
+  }
+    ? keyof DatabaseWithoutInternals[DefaultSchemaEnumNameOrOptions["schema"]]["Enums"]
+    : never = never,
+> = DefaultSchemaEnumNameOrOptions extends {
+  schema: keyof DatabaseWithoutInternals
+}
+  ? DatabaseWithoutInternals[DefaultSchemaEnumNameOrOptions["schema"]]["Enums"][EnumName]
+  : DefaultSchemaEnumNameOrOptions extends keyof DefaultSchema["Enums"]
+    ? DefaultSchema["Enums"][DefaultSchemaEnumNameOrOptions]
+    : never
+
+export type CompositeTypes<
+  PublicCompositeTypeNameOrOptions extends
+    | keyof DefaultSchema["CompositeTypes"]
+    | { schema: keyof DatabaseWithoutInternals },
+  CompositeTypeName extends PublicCompositeTypeNameOrOptions extends {
+    schema: keyof DatabaseWithoutInternals
+  }
+    ? keyof DatabaseWithoutInternals[PublicCompositeTypeNameOrOptions["schema"]]["CompositeTypes"]
+    : never = never,
+> = PublicCompositeTypeNameOrOptions extends {
+  schema: keyof DatabaseWithoutInternals
+}
+  ? DatabaseWithoutInternals[PublicCompositeTypeNameOrOptions["schema"]]["CompositeTypes"][CompositeTypeName]
+  : PublicCompositeTypeNameOrOptions extends keyof DefaultSchema["CompositeTypes"]
+    ? DefaultSchema["CompositeTypes"][PublicCompositeTypeNameOrOptions]
+    : never
+
+export const Constants = {
+  graphql_public: {
+    Enums: {},
+  },
+  public: {
+    Enums: {},
+  },
+} as const
