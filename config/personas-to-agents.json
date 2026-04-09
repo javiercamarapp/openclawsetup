@@ -1,111 +1,213 @@
 {
-  "version": "1.0",
-  "source": "Derived from config/skills.json post-audit + OpenRouter catalog validation",
-  "date": "2026-04-08",
-  "description": "Maps the 50 persona codes to 8 OpenClaw isolated agents. Each agent has a fixed model (OpenClaw 2026.4.5 does not support per-call --model override on openclaw agent CLI, only cron jobs). Personas within the same agent share a model per this mapping but retain their distinct system_prompts from skills.json, injected via --message at invocation time.",
-  "notes": [
-    "Relaxations vs audit: LEGAL moves from mistral-large-2411 to grok-4.1-fast (cheaper, competitive LegalBench). FORGE/SWIFT/DEPLOY move from qwen3-coder:free to minimax-m2.5:free (MiniMax 80.2% SWE-bench > Qwen Coder 66.5%, actual improvement). BENCHMARKER/TENDENCIA move from gpt-oss-120b:free to stepfun-flash:free (downgrade). METRICS moves from deepseek-v3.2 to stepfun-flash:free (downgrade, deepseek was stronger reasoner). DEEP-RESEARCH moves from gemini-2.5-flash to stepfun-flash:free (significant downgrade, flash had GPQA 82.8%). SPLIT moves from llama-3.3-70b:free to stepfun-flash:free (sidegrade). FACTURA/COBRO move from mistral-small-3.2 to stepfun-flash:free (sidegrade, both cheap). AI-MONITOR moves from llama3.1:8b to qwen3:8b (minor, both local 8B).",
-    "Cost impact: Total monthly cost drops from $57.42 (audit) to ~$46 due to free-tier consolidation of previously-paid personas (METRICS, DEEP-RESEARCH, FACTURA, COBRO, LEGAL). Quality relaxations noted above should be monitored; promote problematic agents to paid tier (e.g., cheap-misc → deepseek/deepseek-v3.2) if quality insufficient.",
-    "Model IDs verified against OpenRouter API on 2026-04-08."
-  ],
+  "_meta": {
+    "version": "3.0",
+    "date": "2026-04-08",
+    "description": "Empresa Virtual OpenClaw — 25 agents, ~75 personas, $80/mo est.",
+    "budget": "$200/mo (OpenRouter + Ollama local)",
+    "agents_total": 25,
+    "agents_free": 15,
+    "agents_paid": 9,
+    "agents_local": 1
+  },
   "agents": {
     "premium": {
       "model": "anthropic/claude-sonnet-4.6",
-      "personas": [
-        "PROPUESTA",
-        "SOCIAL"
-      ],
-      "description": "Premium reasoning + creative writing (Claude Sonnet 4.6)"
+      "tier": "PREMIUM",
+      "cost_mo": 18,
+      "ctx": 1000000,
+      "personas": ["PROPUESTA", "SOCIAL"],
+      "division": "Sales + Brand"
     },
-    "grok": {
+    "grok-sales": {
       "model": "x-ai/grok-4.1-fast",
-      "personas": [
-        "HUNTER",
-        "VOZ",
-        "RETAIN",
-        "COMPETE",
-        "INVESTOR",
-        "MEDIA",
-        "ESCUCHA",
-        "PLUMA",
-        "LEGAL"
-      ],
-      "description": "Workhorse cheap paid for sales, ops, legal (Grok 4.1 Fast)"
+      "tier": "PAID",
+      "cost_mo": 7,
+      "ctx": 2000000,
+      "personas": ["HUNTER", "VOZ", "RETAIN", "CLOSER", "UPSELL", "DEALFLOW"],
+      "division": "Sales + Strategy"
     },
-    "qwen-free": {
+    "qwen-general": {
       "model": "qwen/qwen3-next-80b-a3b-instruct:free",
-      "personas": [
-        "FILTER",
-        "FISCAL",
-        "FLUJO",
-        "LEDGER",
-        "OPORTUNIDAD",
-        "PIPELINE",
-        "PRIORITY",
-        "PRODUCTO",
-        "RADAR",
-        "SHIELD",
-        "TALENTO",
-        "TRADUCE"
-      ],
-      "description": "Free 80b general reasoning for finance/ops (Qwen 3 Next 80B)"
-    },
-    "code-free": {
-      "model": "minimax/minimax-m2.5:free",
-      "personas": [
-        "APEX",
-        "PIXEL",
-        "QUALITY",
-        "TRIAGE",
-        "FORGE",
-        "SWIFT",
-        "DEPLOY"
-      ],
-      "description": "Free SWE-bench leader for code generation (MiniMax M2.5)"
+      "tier": "FREE",
+      "cost_mo": 0,
+      "ctx": 262144,
+      "personas": ["FILTER", "PIPELINE", "PRIORITY", "TALENTO", "NOMINA", "PRODUCTO", "ESCUCHA", "OPORTUNIDAD", "TENDENCIA", "RADAR"],
+      "division": "Multi-division general"
     },
     "gemini-lite": {
       "model": "google/gemini-2.5-flash-lite",
-      "personas": [
-        "BIENVENIDA",
-        "CORREO",
-        "DIGEST",
-        "DOCS",
-        "PROMPT-OPT",
-        "RANKING"
-      ],
-      "description": "Cheap general purpose for onboarding/comms (Gemini 2.5 Flash Lite)"
+      "tier": "PAID",
+      "cost_mo": 4,
+      "ctx": 1048576,
+      "personas": ["BIENVENIDA", "COBRO", "CORREO", "RANKING", "DOCS", "PROMPT-OPT", "DIGEST", "INBOX"],
+      "division": "Multi-division lite"
     },
-    "cheap-misc": {
+    "hermes-405b": {
+      "model": "nousresearch/hermes-3-llama-3.1-405b:free",
+      "tier": "FREE",
+      "cost_mo": 0,
+      "ctx": 131072,
+      "personas": ["PLUMA", "MEDIA", "STORYTELLER"],
+      "division": "Brand & Content"
+    },
+    "gemma-vision": {
+      "model": "google/gemma-4-31b-it:free",
+      "tier": "FREE",
+      "cost_mo": 0,
+      "ctx": 262144,
+      "personas": ["VISUAL", "THUMBNAIL"],
+      "division": "Brand & Content"
+    },
+    "trinity-creative": {
+      "model": "arcee-ai/trinity-large-preview:free",
+      "tier": "FREE",
+      "cost_mo": 0,
+      "ctx": 131000,
+      "personas": ["BRAND-VOICE", "EDITORIAL"],
+      "division": "Brand & Content"
+    },
+    "kimi-frontend": {
+      "model": "moonshotai/kimi-k2.5",
+      "tier": "PAID",
+      "cost_mo": 5,
+      "ctx": 262144,
+      "personas": ["FRONTEND", "UI-UX", "PIXEL"],
+      "division": "Software Engineering"
+    },
+    "minimax-code": {
+      "model": "minimax/minimax-m2.5:free",
+      "tier": "FREE",
+      "cost_mo": 0,
+      "ctx": 196608,
+      "personas": ["BACKEND", "API", "QUALITY"],
+      "division": "Software Engineering"
+    },
+    "qwen-coder": {
+      "model": "qwen/qwen3-coder:free",
+      "tier": "FREE",
+      "cost_mo": 0,
+      "ctx": 262000,
+      "personas": ["FORGE", "DEPLOY", "SWIFT"],
+      "division": "Software Engineering"
+    },
+    "deepseek-code": {
+      "model": "deepseek/deepseek-v3.2",
+      "tier": "PAID",
+      "cost_mo": 3,
+      "ctx": 163840,
+      "personas": ["SUPABASE", "SQL", "ARCHITECT", "SPLIT", "METRICS", "GROWTH-HACK"],
+      "division": "Engineering + Analytics"
+    },
+    "nemotron-security": {
+      "model": "nvidia/nemotron-3-super-120b-a12b:free",
+      "tier": "FREE",
+      "cost_mo": 0,
+      "ctx": 262144,
+      "personas": ["SHIELD", "TRIAGE", "AI-MONITOR"],
+      "division": "Engineering + AI Ops"
+    },
+    "qwen-finance": {
+      "model": "qwen/qwen3.6-plus",
+      "tier": "PAID",
+      "cost_mo": 4,
+      "ctx": 1000000,
+      "personas": ["LEDGER", "FLUJO", "FISCAL", "FACTURA", "TREASURY"],
+      "division": "Operations & Finance"
+    },
+    "grok-legal": {
+      "model": "x-ai/grok-4.1-fast",
+      "tier": "PAID",
+      "cost_mo": 3,
+      "ctx": 2000000,
+      "personas": ["LEGAL", "REGULATORIO", "IP"],
+      "division": "Operations & Finance"
+    },
+    "gpt-oss": {
+      "model": "openai/gpt-oss-120b:free",
+      "tier": "FREE",
+      "cost_mo": 0,
+      "ctx": 131072,
+      "personas": ["ROUTER", "BENCHMARKER", "ORCHESTRATOR"],
+      "division": "AI Operations"
+    },
+    "gemini-flash": {
+      "model": "google/gemini-3-flash-preview",
+      "tier": "PAID",
+      "cost_mo": 5,
+      "ctx": 1048576,
+      "personas": ["DEEP-RESEARCH", "COMPETE", "INVESTOR"],
+      "division": "Strategy & Intelligence"
+    },
+    "stepfun": {
       "model": "stepfun/step-3.5-flash:free",
-      "personas": [
-        "NEXUS",
-        "ROUTER",
-        "BENCHMARKER",
-        "TENDENCIA",
-        "SPLIT",
-        "METRICS",
-        "FACTURA",
-        "COBRO",
-        "DEEP-RESEARCH"
-      ],
-      "description": "Free tool-calling for routing/templates/research (Stepfun Step-3.5 Flash)"
+      "tier": "FREE",
+      "cost_mo": 0,
+      "ctx": 256000,
+      "personas": ["WATCHTOWER"],
+      "division": "Strategy & Intelligence"
+    },
+    "llama-translate": {
+      "model": "meta-llama/llama-3.3-70b-instruct:free",
+      "tier": "FREE",
+      "cost_mo": 0,
+      "ctx": 65536,
+      "personas": ["TRADUCE", "LOCALIZA"],
+      "division": "Communication & Language"
     },
     "local-text": {
       "model": "ollama/qwen3:8b",
-      "personas": [
-        "INBOX",
-        "PLANTA",
-        "WATCHTOWER",
-        "AI-MONITOR"
-      ],
-      "description": "Local Ollama for privacy-sensitive monitoring (Qwen 3 8B)"
+      "tier": "LOCAL",
+      "cost_mo": 0,
+      "ctx": 8192,
+      "personas": ["OFFLINE", "PRIVATE"],
+      "division": "Communication & Language"
     },
-    "local-vision": {
-      "model": "ollama/gemma4:e4b",
-      "personas": [
-        "VISUAL"
-      ],
-      "description": "Local multimodal for image/vision tasks (Gemma 4 E4B)"
+    "glm-tools": {
+      "model": "z-ai/glm-4.5-air:free",
+      "tier": "FREE",
+      "cost_mo": 0,
+      "ctx": 131072,
+      "personas": ["NEXUS", "WEBHOOK"],
+      "division": "Integrations"
+    },
+    "gpt-oss-20b": {
+      "model": "openai/gpt-oss-20b:free",
+      "tier": "FREE",
+      "cost_mo": 0,
+      "ctx": 131072,
+      "personas": ["CALCULATOR", "FORECAST"],
+      "division": "Product & Growth"
+    },
+    "gemma-12b": {
+      "model": "google/gemma-3-12b-it:free",
+      "tier": "FREE",
+      "cost_mo": 0,
+      "ctx": 32768,
+      "personas": ["CLASSIFIER"],
+      "division": "Communication & Language"
+    },
+    "kimi-thinking": {
+      "model": "moonshotai/kimi-k2-thinking",
+      "tier": "PAID",
+      "cost_mo": 3,
+      "ctx": 262144,
+      "personas": ["ARCHITECT-DEEP"],
+      "division": "Engineering"
+    },
+    "qwen-coder-flash": {
+      "model": "qwen/qwen3-coder-flash",
+      "tier": "PAID",
+      "cost_mo": 2,
+      "ctx": 1000000,
+      "personas": ["MONOREPO", "MIGRATION"],
+      "division": "Engineering"
+    },
+    "hermes-405b-paid": {
+      "model": "nousresearch/hermes-3-llama-3.1-405b:free",
+      "tier": "FREE",
+      "cost_mo": 0,
+      "ctx": 131072,
+      "_note": "RESERVED — can split hermes into paid version if free tier rate-limits"
     }
   }
 }
