@@ -139,10 +139,12 @@
       "division": "Strategy & Intelligence"
     },
     "stepfun": {
-      "model": "stepfun/step-3.5-flash:free",
+      "model": "qwen/qwen3-next-80b-a3b-instruct:free",
+      "_original_model": "stepfun/step-3.5-flash:free",
+      "_model_note": "Renamed agent kept as 'stepfun' for backwards-compat, but real model is now qwen3-next-80b-a3b-instruct:free — stepfun/step-3.5-flash:free was in the OpenRouter catalog but returned '404 No endpoints found' at runtime (2026-04-08 empirical test via watchtower-health heartbeat). Swapped to qwen-free which is validated working.",
       "tier": "FREE",
       "cost_mo": 0,
-      "ctx": 256000,
+      "ctx": 262144,
       "personas": ["WATCHTOWER"],
       "division": "Strategy & Intelligence"
     },
