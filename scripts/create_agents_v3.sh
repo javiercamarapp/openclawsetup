@@ -303,6 +303,13 @@ while IFS=$'\t' read -r AGENT MODEL; do
     continue
   fi
 
+  # 1b. Ensure agent-dir physically exists. Empirically confirmed in the
+  #     first v3 run: `openclaw agents add` creates workspace/ and sessions/
+  #     subdirs but NOT the agent/ subdir — it only prints "Agent dir: ..."
+  #     informationally. The old Bloque 2 create_agents.sh knew this and
+  #     had the same mkdir; this v3 regression cost us one run.
+  mkdir -p "$AGENT_DIR"
+
   # 2. Wipe seeded workspace .md boilerplate (Qwen-tier hijack prevention,
   #    proven necessary in Bloque 2 PILOT testing).
   if [[ -d "$WORKSPACE" ]]; then
