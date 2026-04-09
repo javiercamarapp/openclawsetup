@@ -38,16 +38,26 @@ in Supabase.
 
 ## Development
 
-```bash
-# From openclawsetup/dashboard/
-cp .env.local.example .env.local
-# edit .env.local with your real Supabase keys
+From the `openclawsetup/dashboard/` directory:
 
-npm install
-npm run dev          # http://localhost:3000
+```
+cp .env.local.example .env.local
 ```
 
-Requires Node.js 20.9+ (Javier runs 25.6.1; sandbox tested on 22.22.2).
+Edit `.env.local` with your real Supabase project URL, anon key, and service
+role key (from supabase.com → your project → Settings → API). Leave the two
+`OPENCLAW_*` values as-is.
+
+```
+npm install
+```
+
+```
+npm run dev
+```
+
+Dev server listens on `http://localhost:3000`. Requires Node.js 20.9+
+(Javier runs 25.6.1; the FASE 0 scaffold was tested on 22.22.2).
 
 ## Project structure
 
@@ -72,19 +82,26 @@ src/
 └── types/            Shared TS types
 ```
 
-## Adding shadcn components
+## shadcn/ui components
 
-The shadcn registry (`ui.shadcn.com/r/...`) was not reachable from the
-sandbox where FASE 0 was scaffolded. On Javier's Mac, run:
+15 components are already committed to `src/components/ui/`: `button`,
+`card`, `input`, `badge`, `tabs`, `table`, `dialog`, `dropdown-menu`,
+`select`, `separator`, `sheet`, `tooltip`, `progress`, `scroll-area`,
+`avatar`. They were added on Javier's Mac via `npx shadcn@latest add`
+because the shadcn registry (`ui.shadcn.com`) was not reachable from the
+scaffold sandbox.
 
-```bash
-cd dashboard
-npx shadcn@latest add button card input badge tabs table dialog \
-  dropdown-menu select separator sheet tooltip progress scroll-area avatar
+The `components.json` is configured (`new-york` style, `neutral` base
+color, Lucide icons, CSS variables enabled), so adding more components is
+a one-liner from the `dashboard/` directory. For example:
+
+```
+npx shadcn@latest add alert skeleton
 ```
 
-The `components.json` is already configured (`new-york` style, `neutral` base
-color, Lucide icons, CSS variables enabled).
+Note that the `tooltip` component needs the app wrapped in `TooltipProvider`
+before use — this is deferred until FASE 6 when tooltips are actually used
+in the Agent Bar and Activity Feed.
 
 ## What's read-only vs owned
 
