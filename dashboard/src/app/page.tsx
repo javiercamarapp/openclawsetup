@@ -76,9 +76,9 @@ export default function Home() {
               { id: "FASE 2", done: true },
               { id: "FASE 3", done: true },
               { id: "FASE 4.5+5", done: true },
-              { id: "FASE 6", done: false },
-              { id: "FASE 7", done: false },
-              { id: "FASE 8", done: false },
+              { id: "FASE 6", done: true },
+              { id: "FASE 7", done: true },
+              { id: "FASE 8", done: true },
             ].map((p) => (
               <span
                 key={p.id}
