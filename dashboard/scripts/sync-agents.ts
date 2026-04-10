@@ -84,6 +84,16 @@ const argv = new Set(process.argv.slice(2));
 const OFFLINE = argv.has("--offline");
 const DRY_RUN = argv.has("--dry-run");
 
+/**
+ * Agent names the gateway legitimately reports but that are NOT
+ * sprites — silenced in the reconcile loop to avoid noisy warnings.
+ *
+ * - `main`: the default agent created by `openclaw onboard`, used
+ *   for interactive admin/debug calls. Not part of the empresa
+ *   virtual topology. See BLOQUE_3_KICKOFF.md.
+ */
+const GATEWAY_NON_SPRITE_AGENTS = new Set<string>(["main"]);
+
 // ───────────────────────────────────────────────────────────────────
 // Paths
 // ───────────────────────────────────────────────────────────────────
@@ -266,6 +276,7 @@ function reconcile(
 
   for (const name of gatewayNames) {
     if (!handled.has(name) && !(name in configAgents)) {
+      if (GATEWAY_NON_SPRITE_AGENTS.has(name)) continue;
       warn(
         `[sync-agents] gateway reports unknown agent "${name}" not in config — skipping`,
       );
