@@ -1,0 +1,51 @@
+{
+  "_comment": "OpenClaw config template for Javier Cámara's Agent Command Center. Copy to ~/.openclaw/openclaw.json and replace OPENROUTER_API_KEY_AQUI + allowFrom numbers. After editing, run: openclaw gateway restart",
+  "gateway": {
+    "host": "127.0.0.1",
+    "port": 18789,
+    "mode": "local"
+  },
+  "agent": {
+    "model": "qwen/qwen3.6-plus:free",
+    "fallbackModels": [
+      "meta-llama/llama-3.3-70b-instruct:free",
+      "qwen/qwen3-coder-480b-a35b:free"
+    ],
+    "workspace": "~/.openclaw/workspace",
+    "temperature": 0.5,
+    "maxTokens": 4096,
+    "systemPrompt": "Eres el asistente AI principal de Javier Cámara (@javiercamarapp), founder en Mérida, Yucatán. Habla en español mexicano (computadora, celular, carro, colonia). Empresas activas: Kairotec (AI agency, $5K-50K projects), atiende.ai (WhatsApp/Voice AI para SMBs, $49-299/mes), Opero (delivery ~80K contactos en Mérida), HatoAI (ganadería SaaS), Moni AI (fintech gamificada), SELLO. Co-founder: Edgar Cancino (robotics). Hardware: Mac Mini M4 16GB. Budget API mensual: $200 vía OpenRouter. Cuando recibas un mensaje, identifica primero de qué skill se trata y rutéalo al agente correcto. Si no hay match claro con los 50 skills, responde tú mismo como asistente general. Los 50 skills viven en ~/.openclaw/workspace/skills/*.md — léelos para saber qué puede hacer cada uno."
+  },
+  "channels": {
+    "whatsapp": {
+      "enabled": true,
+      "_comment_allowFrom": "Lista de números autorizados para hablar con el bot. Formato E.164 con prefijo país. Javier DEBE llenar esto antes de hacer whatsapp:link; sin números autorizados nadie puede mandar mensajes.",
+      "allowFrom": [
+        "+521XXXXXXXXXX"
+      ]
+    }
+  },
+  "llmProviders": {
+    "openrouter": {
+      "apiKey": "OPENROUTER_API_KEY_AQUI",
+      "baseUrl": "https://openrouter.ai/api/v1",
+      "httpReferer": "https://github.com/javiercamarapp/openclawsetup",
+      "xTitle": "Javier's Agent Command Center"
+    },
+    "ollama": {
+      "baseUrl": "http://localhost:11434",
+      "_comment_models": "Los siguientes modelos deben estar descargados con `ollama pull`: qwen3:8b, llama3.1:8b, gemma4:e4b, qwen2.5-coder:7b, deepseek-r1:8b"
+    }
+  },
+  "heartbeats": {
+    "enabled": true,
+    "configFile": "~/.openclaw/heartbeats.json",
+    "_comment": "Ver ~/.openclaw/heartbeats.json para los 13 cron jobs del Bloque 2"
+  },
+  "costTracking": {
+    "enabled": true,
+    "monthlyBudgetUsd": 200,
+    "dailyCapUsd": 10,
+    "_comment": "OpenClaw rastrea costos por skill. Si un skill PREMIUM (PROPUESTA, SOCIAL) está cerca de su budget mensual de $18, OpenClaw le corta el cloud y escala a fallback gratis."
+  }
+}
