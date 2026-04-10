@@ -1,10 +1,4 @@
-import dynamic from "next/dynamic";
-
-// PixelWorld uses Canvas + requestAnimationFrame — must be client-only
-const PixelWorld = dynamic(
-  () => import("@/components/pixel-world/PixelWorld"),
-  { ssr: false },
-);
+import PixelWorldWrapper from "@/components/pixel-world/PixelWorldWrapper";
 
 export default function Home() {
   return (
@@ -40,7 +34,7 @@ export default function Home() {
           <h2 className="mb-2 text-sm font-semibold uppercase tracking-wide text-slate-500">
             Pixel World
           </h2>
-          <PixelWorld />
+          <PixelWorldWrapper />
         </section>
 
         {/* Dashboard nav cards (FASE 6 stubs) */}
