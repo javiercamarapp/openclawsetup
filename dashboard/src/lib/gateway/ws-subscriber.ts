@@ -1,8 +1,9 @@
 /**
  * OpenClaw WebSocket event subscriber — Bloque 3 FASE 3
  *
- * Connects to the OpenClaw gateway at `ws://127.0.0.1:18789/events`
- * and maps incoming events to Supabase table inserts/updates:
+ * Connects to the OpenClaw gateway at `ws://127.0.0.1:18789/events`,
+ * completes the device-identity challenge-response handshake, and
+ * maps incoming events to Supabase table inserts/updates:
  *
  *   conversation.started   → conv_log INSERT + world_events INSERT
  *   conversation.message   → msg_log INSERT + conv_log bump totals
@@ -10,21 +11,22 @@
  *   conversation.completed → conv_log UPDATE + world_events INSERT
  *   agent.error            → world_events INSERT
  *
- * This module is **read-only against OpenClaw** (it subscribes, never
- * sends commands) and **write-only against Supabase** (it inserts
- * into cache tables, never reads from them except for the session→id
- * lookup in msg_log flow).
- *
- * Architecture:
- *   - Auto-reconnect with exponential backoff + jitter (1s → 30s cap)
- *   - Graceful shutdown on SIGINT/SIGTERM: close WS, flush pending ops
- *   - Per-event error isolation: one bad event never crashes the subscriber
- *   - Session→conv_id cache to avoid repeated DB lookups
+ * Protocol (reverse-engineered from the OpenClaw 2026.4.x Control UI):
+ *   1. Connect to WS with Origin header
+ *   2. Receive {type:"event", event:"connect.challenge", payload:{nonce}}
+ *   3. Generate Ed25519 keypair, derive deviceId = SHA-256(publicKey).hex()
+ *   4. Sign pipe-delimited payload: v2|deviceId|clientId|clientMode|role|scopes|signedAtMs|token|nonce
+ *   5. Send {type:"req", id, method:"connect", params:{minProtocol:3, maxProtocol:3, client, role, scopes, caps, auth:{token}, device:{id, publicKey, signedAt, nonce, signature}}}
+ *   6. Receive {type:"res", ok:true, payload:{type:"hello-ok"}} → connected
+ *   7. Events arrive as {type:"event", event:"<name>", payload:{...}, seq:N}
  *
  * Run via: `npx tsx --env-file=.env.local scripts/subscribe.ts`
  * or:      `npm run subscribe`
  */
 
+import { createHash } from "node:crypto";
+
+import nacl from "tweetnacl";
 import WebSocket from "ws";
 
 import { getServerSupabase } from "@/lib/supabase/server";
@@ -33,55 +35,26 @@ import { getServerSupabase } from "@/lib/supabase/server";
 // Types
 // ───────────────────────────────────────────────────────────────────
 
-/** Union of all known OpenClaw gateway event shapes. */
-interface ConversationStartedEvent {
-  type: "conversation.started";
-  sessionId: string;
-  skill: string;
-  trigger?: string;
-  timestamp?: string;
+/** Gateway envelope — all messages have this shape. */
+interface GatewayMessage {
+  type: "event" | "res";
+  [key: string]: unknown;
 }
 
-interface ConversationMessageEvent {
-  type: "conversation.message";
-  sessionId: string;
-  skill: string;
-  role: string;
-  content: string;
-  model?: string;
-  tokensIn?: number;
-  tokensOut?: number;
-  cost?: number;
-  latencyMs?: number;
+interface GatewayEvent {
+  type: "event";
+  event: string;
+  payload: Record<string, unknown>;
+  seq?: number;
 }
 
-interface ConversationHandoffEvent {
-  type: "conversation.handoff";
-  sessionId: string;
-  from: string;
-  to: string;
+interface GatewayResponse {
+  type: "res";
+  id: string;
+  ok: boolean;
+  payload?: Record<string, unknown>;
+  error?: { code: string; message: string };
 }
-
-interface ConversationCompletedEvent {
-  type: "conversation.completed";
-  sessionId: string;
-  summary?: string;
-  totalCost?: number;
-}
-
-interface AgentErrorEvent {
-  type: "agent.error";
-  skill: string;
-  error: string;
-  model?: string;
-}
-
-type OpenClawEvent =
-  | ConversationStartedEvent
-  | ConversationMessageEvent
-  | ConversationHandoffEvent
-  | ConversationCompletedEvent
-  | AgentErrorEvent;
 
 // ───────────────────────────────────────────────────────────────────
 // Config
@@ -89,9 +62,29 @@ type OpenClawEvent =
 
 const OC_WS_URL =
   process.env.OPENCLAW_WS_URL || "ws://127.0.0.1:18789/events";
+const OC_GATEWAY_TOKEN = process.env.OPENCLAW_GATEWAY_TOKEN || "";
+const OC_ORIGIN =
+  process.env.OPENCLAW_ORIGIN || "http://127.0.0.1:18789";
+
 const BASE_DELAY = 1_000;
 const MAX_DELAY = 30_000;
 const JITTER = 0.3;
+const CLIENT_ID = "openclaw-tui";
+const CLIENT_MODE = "webchat";
+const ROLE = "operator";
+const SCOPES = ["operator.read"];
+
+// ───────────────────────────────────────────────────────────────────
+// Device identity (generated once per process lifetime)
+// ───────────────────────────────────────────────────────────────────
+
+const keyPair = nacl.sign.keyPair();
+const deviceId = createHash("sha256")
+  .update(keyPair.publicKey)
+  .digest("hex");
+const publicKeyB64url = Buffer.from(keyPair.publicKey).toString(
+  "base64url",
+);
 
 // ───────────────────────────────────────────────────────────────────
 // State
@@ -100,11 +93,9 @@ const JITTER = 0.3;
 let ws: WebSocket | null = null;
 let reconnectAttempt = 0;
 let shuttingDown = false;
+let reqCounter = 0;
+let authenticated = false;
 
-/**
- * Cache sessionId → conv_log.id to avoid a DB lookup on every
- * conversation.message event. Evicted on conversation.completed.
- */
 const sessionToConvId = new Map<string, string>();
 
 // ───────────────────────────────────────────────────────────────────
@@ -112,6 +103,12 @@ const sessionToConvId = new Map<string, string>();
 // ───────────────────────────────────────────────────────────────────
 
 export function startOpenClawSubscriber(): void {
+  if (!OC_GATEWAY_TOKEN) {
+    console.error(
+      "[oc-sub] OPENCLAW_GATEWAY_TOKEN not set. Add it to dashboard/.env.local",
+    );
+    process.exit(1);
+  }
   log(`connecting to ${OC_WS_URL}...`);
   connect();
 
@@ -120,33 +117,66 @@ export function startOpenClawSubscriber(): void {
 }
 
 // ───────────────────────────────────────────────────────────────────
-// Connection
+// Connection + handshake
 // ───────────────────────────────────────────────────────────────────
 
 function connect(): void {
-  ws = new WebSocket(OC_WS_URL);
+  authenticated = false;
+  ws = new WebSocket(OC_WS_URL, {
+    headers: { Origin: OC_ORIGIN },
+  });
 
   ws.on("open", () => {
-    log("connected");
+    log("socket open, waiting for challenge...");
     reconnectAttempt = 0;
   });
 
   ws.on("message", (raw) => {
-    let evt: OpenClawEvent;
+    let msg: GatewayMessage;
     try {
-      evt = JSON.parse(raw.toString()) as OpenClawEvent;
+      msg = JSON.parse(raw.toString()) as GatewayMessage;
     } catch {
-      warn(`unparseable message: ${raw.toString().slice(0, 200)}`);
+      warn(`unparseable: ${raw.toString().slice(0, 200)}`);
       return;
     }
-    handleEvent(evt).catch((err) => {
-      error(
-        `handler failed for ${evt.type}: ${(err as Error).message}`,
-      );
-    });
+
+    if (msg.type === "event") {
+      const evt = msg as unknown as GatewayEvent;
+
+      // Handle challenge before anything else
+      if (evt.event === "connect.challenge") {
+        const nonce =
+          typeof evt.payload?.nonce === "string"
+            ? evt.payload.nonce
+            : null;
+        if (nonce) {
+          sendConnect(nonce);
+        } else {
+          warn("challenge without nonce");
+        }
+        return;
+      }
+
+      // Skip events until authenticated
+      if (!authenticated) return;
+
+      // Route business events
+      handleBusinessEvent(evt).catch((err) => {
+        error(`handler failed for ${evt.event}: ${(err as Error).message}`);
+      });
+    } else if (msg.type === "res") {
+      const res = msg as unknown as GatewayResponse;
+      if (res.ok && (res.payload as Record<string, unknown>)?.type === "hello-ok") {
+        authenticated = true;
+        log("authenticated — listening for events");
+      } else if (!res.ok && res.error) {
+        error(`connect rejected: ${res.error.message}`);
+      }
+    }
   });
 
   ws.on("close", () => {
+    authenticated = false;
     if (shuttingDown) return;
     const delay = Math.min(BASE_DELAY * 2 ** reconnectAttempt, MAX_DELAY);
     const jittered = delay * (1 + JITTER * (Math.random() * 2 - 1));
@@ -157,78 +187,135 @@ function connect(): void {
 
   ws.on("error", (e) => {
     error(`socket error: ${e.message}`);
-    // 'close' fires next, which triggers reconnect
   });
 }
 
+function sendConnect(nonce: string): void {
+  if (!ws || ws.readyState !== WebSocket.OPEN) return;
+
+  const now = Date.now();
+  const scopesStr = SCOPES.join(",");
+
+  // Canonical signing payload (pipe-delimited, v2 protocol)
+  const sigPayload = [
+    "v2",
+    deviceId,
+    CLIENT_ID,
+    CLIENT_MODE,
+    ROLE,
+    scopesStr,
+    String(now),
+    OC_GATEWAY_TOKEN,
+    nonce,
+  ].join("|");
+
+  const sigBytes = nacl.sign.detached(
+    new TextEncoder().encode(sigPayload),
+    keyPair.secretKey,
+  );
+
+  const id = String(++reqCounter);
+  const req = {
+    type: "req",
+    id,
+    method: "connect",
+    params: {
+      minProtocol: 3,
+      maxProtocol: 3,
+      client: {
+        id: CLIENT_ID,
+        version: "1.0",
+        platform: "node",
+        mode: CLIENT_MODE,
+      },
+      role: ROLE,
+      scopes: SCOPES,
+      caps: ["tool-events"],
+      auth: { token: OC_GATEWAY_TOKEN },
+      device: {
+        id: deviceId,
+        publicKey: publicKeyB64url,
+        signedAt: now,
+        nonce,
+        signature: Buffer.from(sigBytes).toString("base64url"),
+      },
+      userAgent: "openclaw-dashboard-subscriber/1.0",
+      locale: "es-MX",
+    },
+  };
+
+  ws.send(JSON.stringify(req));
+  log("handshake sent");
+}
+
 // ───────────────────────────────────────────────────────────────────
-// Event handlers
+// Business event handlers
 // ───────────────────────────────────────────────────────────────────
 
-async function handleEvent(evt: OpenClawEvent): Promise<void> {
+async function handleBusinessEvent(evt: GatewayEvent): Promise<void> {
   const supabase = getServerSupabase();
+  const p = evt.payload;
 
-  switch (evt.type) {
-    // ── conversation.started ────────────────────────────────────
+  switch (evt.event) {
     case "conversation.started": {
+      const sessionId = p.sessionId as string;
+      const skill = p.skill as string;
+      const trigger = (p.trigger as string) ?? "unknown";
+
       const { data, error: insertErr } = await supabase
         .from("conv_log")
         .insert({
-          openclaw_session_id: evt.sessionId,
-          agent_a_code: evt.skill,
-          trigger_type: evt.trigger ?? "unknown",
+          openclaw_session_id: sessionId,
+          agent_a_code: skill,
+          trigger_type: trigger,
           status: "active",
         })
         .select("id")
         .single();
       if (insertErr) throw insertErr;
-
-      // Cache for future message lookups
-      if (data) sessionToConvId.set(evt.sessionId, data.id);
+      if (data) sessionToConvId.set(sessionId, data.id);
 
       await supabase.from("world_events").insert({
         event_type: "conversation_start",
-        payload: { sessionId: evt.sessionId, agent: evt.skill },
+        payload: { sessionId, agent: skill },
       });
 
-      // Mark agent as talking in pixel world
       await supabase
         .from("agent_positions")
-        .update({ world_state: "talking", last_seen_at: new Date().toISOString() })
-        .eq("code", evt.skill.toLowerCase());
+        .update({
+          world_state: "talking",
+          last_seen_at: new Date().toISOString(),
+        })
+        .eq("code", skill.toLowerCase());
 
-      log(`conv started: ${evt.skill} [${evt.sessionId.slice(0, 8)}]`);
+      log(`conv started: ${skill} [${sessionId.slice(0, 8)}]`);
       break;
     }
 
-    // ── conversation.message ────────────────────────────────────
     case "conversation.message": {
-      const convId = await resolveConvId(evt.sessionId);
+      const sessionId = p.sessionId as string;
+      const convId = await resolveConvId(sessionId);
       if (!convId) {
-        warn(`no conv_log for session ${evt.sessionId}, dropping message`);
+        warn(`no conv_log for session ${sessionId}, dropping msg`);
         return;
       }
 
-      const tokensIn = evt.tokensIn ?? 0;
-      const tokensOut = evt.tokensOut ?? 0;
-      const cost = evt.cost ?? 0;
+      const tokensIn = (p.tokensIn as number) ?? 0;
+      const tokensOut = (p.tokensOut as number) ?? 0;
+      const cost = (p.cost as number) ?? 0;
 
       await supabase.from("msg_log").insert({
         conv_id: convId,
-        speaker: evt.skill,
-        role: evt.role === "javier" ? "javier" : "agent_a",
-        content: evt.content,
-        model_used: evt.model ?? null,
+        speaker: p.skill as string,
+        role: p.role === "javier" ? "javier" : "agent_a",
+        content: p.content as string,
+        model_used: (p.model as string) ?? null,
         tokens_in: tokensIn,
         tokens_out: tokensOut,
         cost,
-        latency_ms: evt.latencyMs ?? null,
+        latency_ms: (p.latencyMs as number) ?? null,
       });
 
-      // Bump running totals on the conv_log row.
-      // Type assertion needed because the RPC function isn't in the
-      // generated types yet — it will be after Javier runs
-      // `supabase db push` + `supabase gen types typescript --linked`.
       await (supabase.rpc as CallableFunction)("bump_conv_totals", {
         p_conv_id: convId,
         p_tokens: tokensIn + tokensOut,
@@ -238,49 +325,54 @@ async function handleEvent(evt: OpenClawEvent): Promise<void> {
       break;
     }
 
-    // ── conversation.handoff ────────────────────────────────────
     case "conversation.handoff": {
       await supabase.from("world_events").insert({
         event_type: "agent_move",
         payload: {
-          from: evt.from,
-          to: evt.to,
-          sessionId: evt.sessionId,
+          from: String(p.from),
+          to: String(p.to),
+          sessionId: String(p.sessionId),
         },
       });
 
-      // Both agents enter walking state for pixel world animation
       await supabase
         .from("agent_positions")
-        .update({ world_state: "walking", last_seen_at: new Date().toISOString() })
-        .in("code", [evt.from.toLowerCase(), evt.to.toLowerCase()]);
+        .update({
+          world_state: "walking",
+          last_seen_at: new Date().toISOString(),
+        })
+        .in("code", [
+          (p.from as string).toLowerCase(),
+          (p.to as string).toLowerCase(),
+        ]);
 
-      log(`handoff: ${evt.from} → ${evt.to}`);
+      log(`handoff: ${p.from} → ${p.to}`);
       break;
     }
 
-    // ── conversation.completed ──────────────────────────────────
     case "conversation.completed": {
+      const sessionId = p.sessionId as string;
+
       await supabase
         .from("conv_log")
         .update({
           status: "completed",
-          summary: evt.summary ?? null,
-          total_cost: evt.totalCost ?? 0,
+          summary: (p.summary as string) ?? null,
+          total_cost: (p.totalCost as number) ?? 0,
           ended_at: new Date().toISOString(),
         })
-        .eq("openclaw_session_id", evt.sessionId);
+        .eq("openclaw_session_id", sessionId);
 
       await supabase.from("world_events").insert({
         event_type: "conversation_end",
         payload: {
-          sessionId: evt.sessionId,
-          summary: evt.summary ?? null,
+          sessionId,
+          summary: p.summary ? String(p.summary) : null,
         },
       });
 
       // Return agent to idle
-      const convId = sessionToConvId.get(evt.sessionId);
+      const convId = sessionToConvId.get(sessionId);
       if (convId) {
         const { data: conv } = await supabase
           .from("conv_log")
@@ -290,37 +382,40 @@ async function handleEvent(evt: OpenClawEvent): Promise<void> {
         if (conv?.agent_a_code) {
           await supabase
             .from("agent_positions")
-            .update({ world_state: "idle", last_seen_at: new Date().toISOString() })
+            .update({
+              world_state: "idle",
+              last_seen_at: new Date().toISOString(),
+            })
             .eq("code", conv.agent_a_code);
         }
       }
 
-      // Evict from cache
-      sessionToConvId.delete(evt.sessionId);
-
-      log(`conv completed: [${evt.sessionId.slice(0, 8)}]`);
+      sessionToConvId.delete(sessionId);
+      log(`conv completed: [${sessionId.slice(0, 8)}]`);
       break;
     }
 
-    // ── agent.error ─────────────────────────────────────────────
     case "agent.error": {
       await supabase.from("world_events").insert({
         event_type: "agent_error",
         payload: {
-          skill: evt.skill,
-          error: evt.error,
-          model: evt.model ?? null,
+          skill: String(p.skill),
+          error: String(p.error),
+          model: p.model ? String(p.model) : null,
         },
       });
 
-      warn(`agent error: ${evt.skill} — ${evt.error}`);
+      warn(`agent error: ${p.skill} — ${p.error}`);
+      break;
+    }
+
+    case "health": {
+      // Gateway health ping — ignore silently
       break;
     }
 
     default: {
-      // Unknown event — log but don't crash
-      const unknown = evt as { type?: string };
-      log(`unhandled event type: ${unknown.type ?? "undefined"}`);
+      log(`unhandled event: ${evt.event}`);
     }
   }
 }
@@ -329,11 +424,6 @@ async function handleEvent(evt: OpenClawEvent): Promise<void> {
 // Helpers
 // ───────────────────────────────────────────────────────────────────
 
-/**
- * Resolves an OpenClaw sessionId to a conv_log UUID. Uses the
- * in-memory cache first; falls back to a DB lookup if the cache
- * misses (e.g. subscriber restarted mid-conversation).
- */
 async function resolveConvId(
   sessionId: string,
 ): Promise<string | null> {
@@ -358,21 +448,14 @@ async function shutdown(signal: string): Promise<void> {
   if (shuttingDown) return;
   shuttingDown = true;
   log(`${signal} received, shutting down...`);
-
-  // Close WebSocket cleanly
   ws?.close(1000, "shutdown");
 
-  // Hard deadline — force exit if something hangs
   const hardTimeout = setTimeout(() => process.exit(1), 5_000);
   hardTimeout.unref();
 
   log("shutdown complete");
   process.exit(0);
 }
-
-// ───────────────────────────────────────────────────────────────────
-// Logging
-// ───────────────────────────────────────────────────────────────────
 
 function log(msg: string): void {
   console.log(`[oc-sub] ${msg}`);
