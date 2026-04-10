@@ -258,165 +258,154 @@ async function handleBusinessEvent(evt: GatewayEvent): Promise<void> {
   const p = evt.payload;
 
   switch (evt.event) {
-    case "conversation.started": {
-      const sessionId = p.sessionId as string;
-      const skill = p.skill as string;
-      const trigger = (p.trigger as string) ?? "unknown";
+    // ── agent lifecycle (start / end of an agent run) ───────────
+    case "agent": {
+      const runId = p.runId as string;
+      const sessionKey = (p.sessionKey as string) ?? "";
+      const data = p.data as Record<string, unknown> | undefined;
+      const stream = p.stream as string | undefined;
 
-      const { data, error: insertErr } = await supabase
-        .from("conv_log")
-        .insert({
-          openclaw_session_id: sessionId,
-          agent_a_code: skill,
-          trigger_type: trigger,
-          status: "active",
-        })
-        .select("id")
-        .single();
-      if (insertErr) throw insertErr;
-      if (data) sessionToConvId.set(sessionId, data.id);
+      // Extract agent name from sessionKey: "agent:<name>:cron:<jobId>"
+      const agentCode = parseAgentFromSessionKey(sessionKey);
 
-      await supabase.from("world_events").insert({
-        event_type: "conversation_start",
-        payload: { sessionId, agent: skill },
-      });
-
-      await supabase
-        .from("agent_positions")
-        .update({
-          world_state: "talking",
-          last_seen_at: new Date().toISOString(),
-        })
-        .eq("code", skill.toLowerCase());
-
-      log(`conv started: ${skill} [${sessionId.slice(0, 8)}]`);
-      break;
-    }
-
-    case "conversation.message": {
-      const sessionId = p.sessionId as string;
-      const convId = await resolveConvId(sessionId);
-      if (!convId) {
-        warn(`no conv_log for session ${sessionId}, dropping msg`);
-        return;
-      }
-
-      const tokensIn = (p.tokensIn as number) ?? 0;
-      const tokensOut = (p.tokensOut as number) ?? 0;
-      const cost = (p.cost as number) ?? 0;
-
-      await supabase.from("msg_log").insert({
-        conv_id: convId,
-        speaker: p.skill as string,
-        role: p.role === "javier" ? "javier" : "agent_a",
-        content: p.content as string,
-        model_used: (p.model as string) ?? null,
-        tokens_in: tokensIn,
-        tokens_out: tokensOut,
-        cost,
-        latency_ms: (p.latencyMs as number) ?? null,
-      });
-
-      await (supabase.rpc as CallableFunction)("bump_conv_totals", {
-        p_conv_id: convId,
-        p_tokens: tokensIn + tokensOut,
-        p_cost: cost,
-      });
-
-      break;
-    }
-
-    case "conversation.handoff": {
-      await supabase.from("world_events").insert({
-        event_type: "agent_move",
-        payload: {
-          from: String(p.from),
-          to: String(p.to),
-          sessionId: String(p.sessionId),
-        },
-      });
-
-      await supabase
-        .from("agent_positions")
-        .update({
-          world_state: "walking",
-          last_seen_at: new Date().toISOString(),
-        })
-        .in("code", [
-          (p.from as string).toLowerCase(),
-          (p.to as string).toLowerCase(),
-        ]);
-
-      log(`handoff: ${p.from} → ${p.to}`);
-      break;
-    }
-
-    case "conversation.completed": {
-      const sessionId = p.sessionId as string;
-
-      await supabase
-        .from("conv_log")
-        .update({
-          status: "completed",
-          summary: (p.summary as string) ?? null,
-          total_cost: (p.totalCost as number) ?? 0,
-          ended_at: new Date().toISOString(),
-        })
-        .eq("openclaw_session_id", sessionId);
-
-      await supabase.from("world_events").insert({
-        event_type: "conversation_end",
-        payload: {
-          sessionId,
-          summary: p.summary ? String(p.summary) : null,
-        },
-      });
-
-      // Return agent to idle
-      const convId = sessionToConvId.get(sessionId);
-      if (convId) {
-        const { data: conv } = await supabase
+      if (stream === "lifecycle" && data?.phase === "start") {
+        // Agent run started → create conv_log entry
+        const { data: row, error: insertErr } = await supabase
           .from("conv_log")
-          .select("agent_a_code")
-          .eq("id", convId)
+          .insert({
+            openclaw_session_id: runId,
+            agent_a_code: agentCode,
+            trigger_type: sessionKey.includes(":cron:") ? "heartbeat" : "manual",
+            status: "active",
+          })
+          .select("id")
           .single();
-        if (conv?.agent_a_code) {
+        if (insertErr) throw insertErr;
+        if (row) sessionToConvId.set(runId, row.id);
+
+        await supabase.from("world_events").insert({
+          event_type: "conversation_start",
+          payload: { runId, agent: agentCode, sessionKey },
+        });
+
+        if (agentCode) {
+          await supabase
+            .from("agent_positions")
+            .update({
+              world_state: "talking",
+              last_seen_at: new Date().toISOString(),
+            })
+            .eq("code", agentCode);
+        }
+
+        log(`agent start: ${agentCode ?? "unknown"} [${runId.slice(0, 8)}]`);
+      } else if (stream === "lifecycle" && (data?.phase === "end" || data?.phase === "complete")) {
+        // Agent run ended → update conv_log
+        await supabase
+          .from("conv_log")
+          .update({
+            status: "completed",
+            ended_at: new Date().toISOString(),
+          })
+          .eq("openclaw_session_id", runId);
+
+        await supabase.from("world_events").insert({
+          event_type: "conversation_end",
+          payload: { runId, agent: agentCode },
+        });
+
+        if (agentCode) {
           await supabase
             .from("agent_positions")
             .update({
               world_state: "idle",
               last_seen_at: new Date().toISOString(),
             })
-            .eq("code", conv.agent_a_code);
+            .eq("code", agentCode);
+        }
+
+        sessionToConvId.delete(runId);
+        log(`agent end: ${agentCode ?? "unknown"} [${runId.slice(0, 8)}]`);
+      }
+      // Other agent sub-events (tool calls, etc.) — log for discovery
+      else if (!seenEventTypes.has(`agent:${stream}:${data?.phase}`)) {
+        seenEventTypes.add(`agent:${stream}:${data?.phase}`);
+        log(`agent sub-event: stream=${stream} phase=${data?.phase} — ${JSON.stringify(evt).slice(0, 300)}`);
+      }
+      break;
+    }
+
+    // ── chat (messages, errors, model responses) ────────────────
+    case "chat": {
+      const runId = p.runId as string;
+      const state = p.state as string | undefined;
+      const sessionKey = (p.sessionKey as string) ?? "";
+      const agentCode = parseAgentFromSessionKey(sessionKey);
+
+      if (state === "error") {
+        // Error event → world_events
+        const errorMsg = (p.errorMessage as string) ?? "unknown error";
+        await supabase.from("world_events").insert({
+          event_type: "agent_error",
+          payload: {
+            runId,
+            agent: agentCode,
+            error: errorMsg,
+          },
+        });
+        warn(`chat error: ${agentCode} — ${errorMsg.slice(0, 120)}`);
+      } else {
+        // Message content → msg_log (if we can resolve the conv)
+        const convId = await resolveConvId(runId);
+        if (convId) {
+          const content =
+            (p.text as string) ??
+            (p.content as string) ??
+            (p.message as string) ??
+            null;
+          if (content) {
+            await supabase.from("msg_log").insert({
+              conv_id: convId,
+              speaker: agentCode ?? "unknown",
+              role: "agent_a",
+              content,
+              model_used: (p.model as string) ?? null,
+              tokens_in: (p.tokensIn as number) ?? 0,
+              tokens_out: (p.tokensOut as number) ?? 0,
+              cost: (p.cost as number) ?? 0,
+              latency_ms: (p.latencyMs as number) ?? null,
+            });
+          }
+        }
+
+        // Log first occurrence of each chat state for discovery
+        const stateKey = `chat:${state}`;
+        if (!seenEventTypes.has(stateKey)) {
+          seenEventTypes.add(stateKey);
+          log(`chat state="${state}": ${JSON.stringify(evt).slice(0, 400)}`);
         }
       }
-
-      sessionToConvId.delete(sessionId);
-      log(`conv completed: [${sessionId.slice(0, 8)}]`);
       break;
     }
 
-    case "agent.error": {
+    // ── cron lifecycle ──────────────────────────────────────────
+    case "cron": {
+      const action = p.action as string;
+      const jobId = p.jobId as string;
       await supabase.from("world_events").insert({
-        event_type: "agent_error",
-        payload: {
-          skill: String(p.skill),
-          error: String(p.error),
-          model: p.model ? String(p.model) : null,
-        },
+        event_type: `cron_${action}`,
+        payload: { jobId, action, runAtMs: Number(p.runAtMs) || 0 },
       });
-
-      warn(`agent error: ${p.skill} — ${p.error}`);
+      log(`cron ${action}: ${jobId.slice(0, 8)}`);
       break;
     }
 
-    case "health": {
-      // Gateway health ping — ignore silently
+    // ── ignore silently ─────────────────────────────────────────
+    case "health":
+    case "tick":
       break;
-    }
 
     default: {
-      // DEBUG: log first 500 chars of unhandled events to discover the real schema
       const preview = JSON.stringify(evt).slice(0, 500);
       if (!seenEventTypes.has(evt.event)) {
         seenEventTypes.add(evt.event);
@@ -424,6 +413,19 @@ async function handleBusinessEvent(evt: GatewayEvent): Promise<void> {
       }
     }
   }
+}
+
+/**
+ * Extracts the agent code from an OpenClaw sessionKey.
+ * Format: "agent:<name>:<context>" → returns <name>
+ * Falls back to null if the format doesn't match.
+ */
+function parseAgentFromSessionKey(key: string): string | null {
+  const parts = key.split(":");
+  if (parts.length >= 2 && parts[0] === "agent") {
+    return parts[1] === "main" ? null : parts[1];
+  }
+  return null;
 }
 
 // ───────────────────────────────────────────────────────────────────
