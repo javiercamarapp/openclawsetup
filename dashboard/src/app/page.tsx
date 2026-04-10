@@ -1,72 +1,130 @@
+import dynamic from "next/dynamic";
+
+// PixelWorld uses Canvas + requestAnimationFrame — must be client-only
+const PixelWorld = dynamic(
+  () => import("@/components/pixel-world/PixelWorld"),
+  { ssr: false },
+);
+
 export default function Home() {
-  const phases = [
-    { id: "FASE 0", label: "Infra setup", status: "done" },
-    { id: "FASE 1", label: "Supabase cache schema", status: "pending" },
-    { id: "FASE 2", label: "OpenClaw gateway client", status: "pending" },
-    { id: "FASE 3", label: "Gateway event subscriber", status: "pending" },
-    { id: "FASE 4", label: "Orchestrator (delegated to OpenClaw)", status: "pending" },
-    { id: "FASE 4.5", label: "Sprite factory", status: "pending" },
-    { id: "FASE 5", label: "Pixel world (PixiJS)", status: "pending" },
-    { id: "FASE 6", label: "Dashboard screens", status: "pending" },
-    { id: "FASE 7", label: "Ghost mode", status: "pending" },
-    { id: "FASE 8", label: "Auto-start + polish", status: "pending" },
-  ];
-
   return (
-    <main className="min-h-screen p-10 font-sans">
-      <div className="mx-auto max-w-2xl space-y-8">
-        <header className="space-y-2">
-          <p className="text-xs font-mono uppercase tracking-wider text-[color:var(--muted-foreground)]">
-            Bloque 3 · Agent Command Center
-          </p>
-          <h1 className="text-3xl font-semibold tracking-tight">
-            Dashboard boot OK
-          </h1>
-          <p className="text-sm text-[color:var(--muted-foreground)]">
-            Next.js 16 + React 19 + Tailwind 4 + PixiJS 8 + Supabase + Zustand.
-            Read-only visualizer over the OpenClaw gateway at{" "}
-            <code className="font-mono text-xs">ws://127.0.0.1:18789</code>.
-          </p>
-        </header>
+    <main className="min-h-screen bg-slate-950 text-slate-100">
+      {/* Header */}
+      <header className="border-b border-slate-800 px-6 py-4">
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="text-xs font-mono uppercase tracking-wider text-slate-500">
+              Bloque 3 · Empresa Virtual
+            </p>
+            <h1 className="text-xl font-semibold tracking-tight">
+              Agent Command Center
+            </h1>
+          </div>
+          <div className="flex gap-2 text-xs text-slate-500">
+            <span className="rounded bg-slate-800 px-2 py-1">
+              24 agents
+            </span>
+            <span className="rounded bg-slate-800 px-2 py-1">
+              13 crons
+            </span>
+            <span className="rounded bg-emerald-900 px-2 py-1 text-emerald-400">
+              live
+            </span>
+          </div>
+        </div>
+      </header>
 
-        <section className="space-y-2">
-          <h2 className="text-sm font-semibold uppercase tracking-wide text-[color:var(--muted-foreground)]">
-            Roadmap
+      <div className="mx-auto max-w-5xl space-y-6 p-6">
+        {/* Pixel World */}
+        <section>
+          <h2 className="mb-2 text-sm font-semibold uppercase tracking-wide text-slate-500">
+            Pixel World
           </h2>
-          <ul className="space-y-1 font-mono text-sm">
-            {phases.map((p) => (
-              <li
-                key={p.id}
-                className="flex items-center gap-3 border-b border-[color:var(--border)] py-2"
-              >
-                <span
-                  aria-label={p.status}
-                  className={
-                    p.status === "done"
-                      ? "inline-block h-2 w-2 rounded-full bg-emerald-500"
-                      : "inline-block h-2 w-2 rounded-full bg-zinc-300"
-                  }
-                />
-                <span className="w-20 text-xs text-[color:var(--muted-foreground)]">
-                  {p.id}
-                </span>
-                <span>{p.label}</span>
-              </li>
-            ))}
-          </ul>
+          <PixelWorld />
         </section>
 
-        <footer className="pt-4 text-xs text-[color:var(--muted-foreground)]">
-          Not fork of{" "}
-          <a
-            href="https://github.com/kirillkuzin/clawboard"
-            className="underline"
-          >
-            kirillkuzin/clawboard
-          </a>
-          . Reference-only — patterns adapted, code clean-room.
-        </footer>
+        {/* Dashboard nav cards (FASE 6 stubs) */}
+        <section className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+          <NavCard
+            href="/tasks"
+            title="Tasks"
+            description="Kanban board"
+            icon="T"
+          />
+          <NavCard
+            href="/costs"
+            title="Cost Center"
+            description="Usage & spend"
+            icon="$"
+          />
+          <NavCard
+            href="/comms"
+            title="Comm Log"
+            description="Conversations"
+            icon="C"
+          />
+          <NavCard
+            href="/config"
+            title="Config"
+            description="Agent settings"
+            icon="S"
+          />
+        </section>
+
+        {/* Roadmap */}
+        <section>
+          <h2 className="mb-2 text-sm font-semibold uppercase tracking-wide text-slate-500">
+            Roadmap
+          </h2>
+          <div className="grid grid-cols-2 gap-2 text-xs sm:grid-cols-5">
+            {[
+              { id: "FASE 0-1", done: true },
+              { id: "FASE 2", done: true },
+              { id: "FASE 3", done: true },
+              { id: "FASE 4.5+5", done: true },
+              { id: "FASE 6", done: false },
+              { id: "FASE 7", done: false },
+              { id: "FASE 8", done: false },
+            ].map((p) => (
+              <span
+                key={p.id}
+                className={`rounded px-2 py-1 text-center ${
+                  p.done
+                    ? "bg-emerald-900/50 text-emerald-400"
+                    : "bg-slate-800 text-slate-500"
+                }`}
+              >
+                {p.id}
+              </span>
+            ))}
+          </div>
+        </section>
       </div>
     </main>
+  );
+}
+
+function NavCard({
+  href,
+  title,
+  description,
+  icon,
+}: {
+  href: string;
+  title: string;
+  description: string;
+  icon: string;
+}) {
+  return (
+    <a
+      href={href}
+      className="group rounded-lg border border-slate-800 bg-slate-900 p-4 transition-colors hover:border-slate-600 hover:bg-slate-800"
+    >
+      <div className="mb-2 flex h-8 w-8 items-center justify-center rounded bg-slate-800 font-mono text-sm font-bold text-slate-400 group-hover:bg-slate-700">
+        {icon}
+      </div>
+      <p className="text-sm font-medium">{title}</p>
+      <p className="text-xs text-slate-500">{description}</p>
+    </a>
   );
 }

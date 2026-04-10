@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  ai.openclaw.subscriber.plist — Bloque 3 FASE 8
+
+  LaunchAgent that auto-starts the WS event subscriber on login.
+  Depends on the OpenClaw gateway being up (ai.openclaw.gateway).
+  The subscriber auto-reconnects, so start order doesn't matter.
+
+  Install:
+    cp scripts/ai.openclaw.subscriber.plist ~/Library/LaunchAgents/
+    launchctl load ~/Library/LaunchAgents/ai.openclaw.subscriber.plist
+
+  Logs:
+    tail -f /tmp/openclaw-subscriber.log
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>ai.openclaw.subscriber</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/bash</string>
+    <string>-c</string>
+    <string>cd ~/openclawsetup/dashboard &amp;&amp; /opt/homebrew/bin/npx tsx --env-file=.env.local scripts/subscribe.ts 2&gt;&amp;1 | tee /tmp/openclaw-subscriber.log</string>
+  </array>
+
+  <key>RunAtLoad</key>
+  <true/>
+
+  <key>KeepAlive</key>
+  <true/>
+
+  <key>StandardOutPath</key>
+  <string>/tmp/openclaw-subscriber.log</string>
+
+  <key>StandardErrorPath</key>
+  <string>/tmp/openclaw-subscriber.log</string>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+  </dict>
+</dict>
+</plist>
