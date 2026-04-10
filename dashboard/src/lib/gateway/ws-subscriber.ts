@@ -97,6 +97,7 @@ let reqCounter = 0;
 let authenticated = false;
 
 const sessionToConvId = new Map<string, string>();
+const seenEventTypes = new Set<string>();
 
 // ───────────────────────────────────────────────────────────────────
 // Public API
@@ -415,7 +416,12 @@ async function handleBusinessEvent(evt: GatewayEvent): Promise<void> {
     }
 
     default: {
-      log(`unhandled event: ${evt.event}`);
+      // DEBUG: log first 500 chars of unhandled events to discover the real schema
+      const preview = JSON.stringify(evt).slice(0, 500);
+      if (!seenEventTypes.has(evt.event)) {
+        seenEventTypes.add(evt.event);
+        log(`NEW event type "${evt.event}": ${preview}`);
+      }
     }
   }
 }
