@@ -6,6 +6,11 @@
  * 3. Saves the agent's response to direct_messages
  *
  * The agent actually "thinks" and responds using its assigned LLM.
+ *
+ * NOTE: The direct_messages table MUST be added to the Supabase Realtime
+ * publication for live message delivery to work:
+ *   ALTER PUBLICATION supabase_realtime ADD TABLE direct_messages;
+ * Run this in the Supabase SQL Editor if messages only appear after refresh.
  */
 
 import { getServerSupabase } from "@/lib/supabase/server";
@@ -74,15 +79,28 @@ export async function POST(request: Request) {
     // 2. Get agent config
     const agentConfig = AGENT_MODELS[threadId];
     if (!agentConfig) {
+      console.warn(`[api/chat/send] No agent config for threadId="${threadId}", skipping AI response`);
       return Response.json({ ok: true, agentResponse: false });
     }
 
     // 3. Get OpenRouter API key
     const apiKey = process.env.OPENROUTER_API_KEY;
-    if (!apiKey) {
-      console.warn("[api/chat/send] OPENROUTER_API_KEY not set, skipping agent response");
-      return Response.json({ ok: true, agentResponse: false, reason: "no_api_key" });
+    if (!apiKey || apiKey.trim() === "" || apiKey === "REPLACE_WITH_OPENROUTER_KEY") {
+      console.error(
+        "[api/chat/send] OPENROUTER_API_KEY is not configured. " +
+        "Set it in dashboard/.env.local (without NEXT_PUBLIC_ prefix). " +
+        `Current value length: ${apiKey?.length ?? 0}`
+      );
+      return Response.json(
+        { error: "OPENROUTER_API_KEY not configured on server. Set it in .env.local and restart the dev server." },
+        { status: 503 },
+      );
     }
+
+    console.log(
+      `[api/chat/send] Calling OpenRouter: model=${agentConfig.model}, ` +
+      `apiKey length=${apiKey.length}, threadId=${threadId}`
+    );
 
     // 4. Load recent conversation context
     const { data: recentMsgs } = await supabase
@@ -103,7 +121,7 @@ export async function POST(request: Request) {
     const openrouterRes = await fetch(`${OPENROUTER_BASE}/chat/completions`, {
       method: "POST",
       headers: {
-        "Authorization": `Bearer ${apiKey}`,
+        "Authorization": `Bearer ${apiKey.trim()}`,
         "Content-Type": "application/json",
         "HTTP-Referer": "https://kairotec.com",
         "X-Title": "Empresa Virtual Dashboard",
@@ -121,26 +139,58 @@ export async function POST(request: Request) {
 
     if (!openrouterRes.ok) {
       const errText = await openrouterRes.text();
-      console.error("[api/chat/send] OpenRouter error:", errText);
-      return Response.json({ ok: true, agentResponse: false, reason: "openrouter_error" });
+      console.error(
+        `[api/chat/send] OpenRouter returned ${openrouterRes.status} ${openrouterRes.statusText}. ` +
+        `Model: ${agentConfig.model}. API key length: ${apiKey.length}. ` +
+        `Response body: ${errText.slice(0, 500)}`
+      );
+      // Return the error to the client so it's visible in the UI
+      const errorDetail = openrouterRes.status === 401
+        ? "OpenRouter API key is invalid (401 Unauthorized). Check OPENROUTER_API_KEY in .env.local."
+        : `OpenRouter error ${openrouterRes.status}: ${errText.slice(0, 200)}`;
+      return Response.json(
+        { error: errorDetail },
+        { status: 502 },
+      );
     }
 
     const completion = await openrouterRes.json();
+    console.log(
+      `[api/chat/send] OpenRouter success: model=${completion.model ?? agentConfig.model}, ` +
+      `usage=${JSON.stringify(completion.usage ?? {})}`
+    );
+
     const agentReply =
       completion.choices?.[0]?.message?.content ?? "...";
 
+    if (!agentReply || agentReply === "...") {
+      console.warn(
+        `[api/chat/send] Empty response from OpenRouter. ` +
+        `Full completion: ${JSON.stringify(completion).slice(0, 500)}`
+      );
+    }
+
     // 6. Save agent's response
-    await supabase.from("direct_messages").insert({
+    const { error: agentInsertErr } = await supabase.from("direct_messages").insert({
       thread_id: threadId,
       sender: threadId,
       content: agentReply,
     });
 
+    if (agentInsertErr) {
+      console.error("[api/chat/send] Failed to save agent response:", agentInsertErr);
+      return Response.json(
+        { error: `Agent responded but failed to save: ${agentInsertErr.message}` },
+        { status: 500 },
+      );
+    }
+
     return Response.json({ ok: true, agentResponse: true });
   } catch (err) {
     console.error("[api/chat/send] Unexpected error:", err);
+    const message = err instanceof Error ? err.message : "Internal server error";
     return Response.json(
-      { error: "Internal server error" },
+      { error: message },
       { status: 500 },
     );
   }

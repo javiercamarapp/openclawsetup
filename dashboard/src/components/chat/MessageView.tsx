@@ -5,9 +5,16 @@
  * WhatsApp-style message bubbles for a single chat thread.
  * Loads messages from Supabase on mount, subscribes to Realtime
  * for live updates, and auto-scrolls to the latest message.
+ *
+ * IMPORTANT: For Realtime to work, the direct_messages table must be
+ * added to the supabase_realtime publication. Run this SQL once:
+ *
+ *   ALTER PUBLICATION supabase_realtime ADD TABLE direct_messages;
+ *
+ * Without this, postgres_changes events will NOT fire.
  */
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useCallback } from "react";
 
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { getBrowserSupabase } from "@/lib/supabase/browser";
@@ -39,6 +46,29 @@ export default function MessageView({ threadId }: MessageViewProps) {
 
   const agent = AGENT_SPRITES.find((a) => a.code === threadId);
   const agentLabel = agent?.label ?? threadId;
+
+  // Stable callback ref for addMessage to avoid re-subscribing on every render
+  const addMessageRef = useRef(addMessage);
+  addMessageRef.current = addMessage;
+
+  const handleRealtimeInsert = useCallback(
+    (payload: { new: Record<string, unknown> }) => {
+      const row = payload.new;
+      const msg: DirectMessage = {
+        id: row.id as string,
+        thread_id: row.thread_id as string,
+        sender: row.sender as string,
+        content: row.content as string,
+        metadata:
+          typeof row.metadata === "object" && row.metadata !== null
+            ? (row.metadata as Record<string, unknown>)
+            : {},
+        created_at: row.created_at as string,
+      };
+      addMessageRef.current(msg);
+    },
+    [],
+  );
 
   // Load messages on mount / thread change
   useEffect(() => {
@@ -97,28 +127,23 @@ export default function MessageView({ threadId }: MessageViewProps) {
           table: "direct_messages",
           filter: `thread_id=eq.${threadId}`,
         },
-        (payload) => {
-          const row = payload.new as Record<string, unknown>;
-          const msg: DirectMessage = {
-            id: row.id as string,
-            thread_id: row.thread_id as string,
-            sender: row.sender as string,
-            content: row.content as string,
-            metadata:
-              typeof row.metadata === "object" && row.metadata !== null
-                ? (row.metadata as Record<string, unknown>)
-                : {},
-            created_at: row.created_at as string,
-          };
-          addMessage(msg);
-        },
+        handleRealtimeInsert,
       )
-      .subscribe();
+      .subscribe((status) => {
+        if (status === "SUBSCRIBED") {
+          console.log(`[MessageView] Realtime subscribed for thread: ${threadId}`);
+        } else if (status === "CHANNEL_ERROR") {
+          console.error(
+            `[MessageView] Realtime channel error for thread: ${threadId}. ` +
+            `Ensure ALTER PUBLICATION supabase_realtime ADD TABLE direct_messages; has been run.`
+          );
+        }
+      });
 
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [threadId, addMessage]);
+  }, [threadId, handleRealtimeInsert]);
 
   // Auto-scroll on new messages
   useEffect(() => {
