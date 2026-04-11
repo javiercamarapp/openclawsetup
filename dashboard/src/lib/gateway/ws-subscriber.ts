@@ -355,18 +355,52 @@ async function handleBusinessEvent(evt: GatewayEvent): Promise<void> {
         });
         warn(`chat error: ${agentCode} — ${errorMsg.slice(0, 120)}`);
       } else {
+        // ONLY save complete messages, not streaming deltas or tool call chunks
+        // Skip delta/streaming states — they're partial chunks
+        if (state === "delta" || state === "streaming" || state === "thinking") {
+          break;
+        }
+
         // Message content → msg_log (if we can resolve the conv)
         const convId = await resolveConvId(runId);
         if (convId) {
-          const content =
+          let content =
             (p.text as string) ??
             (p.content as string) ??
             (p.message as string) ??
             null;
-          if (content) {
+
+          // Parse JSON-wrapped content (OpenClaw sends structured messages)
+          if (content && content.startsWith("{")) {
+            try {
+              const parsed = JSON.parse(content);
+              if (parsed.role === "assistant" && Array.isArray(parsed.content)) {
+                // Extract text from structured content array
+                const textParts = parsed.content
+                  .filter((c: { type: string }) => c.type === "text")
+                  .map((c: { text: string }) => c.text)
+                  .join("");
+                // Skip tool calls — they're not readable messages
+                if (textParts.startsWith("TOOLCALL>") || textParts.startsWith("[{\"name\":")) {
+                  break;
+                }
+                content = textParts || null;
+              }
+            } catch {
+              // Not JSON, use as-is
+            }
+          }
+
+          // Skip tool call content
+          if (content && (content.startsWith("TOOLCALL>") || content.startsWith("[{\"name\":"))) {
+            break;
+          }
+
+          // Only save if there's actual readable content
+          if (content && content.length > 2) {
             await supabase.from("msg_log").insert({
               conv_id: convId,
-              speaker: agentCode ?? "unknown",
+              speaker: agentCode ?? "main",
               role: "agent_a",
               content,
               model_used: (p.model as string) ?? null,
@@ -375,6 +409,7 @@ async function handleBusinessEvent(evt: GatewayEvent): Promise<void> {
               cost: (p.cost as number) ?? 0,
               latency_ms: (p.latencyMs as number) ?? null,
             });
+            log(`msg: ${agentCode ?? "main"} — ${content.slice(0, 80)}`);
           }
         }
 
@@ -418,12 +453,14 @@ async function handleBusinessEvent(evt: GatewayEvent): Promise<void> {
 /**
  * Extracts the agent code from an OpenClaw sessionKey.
  * Format: "agent:<name>:<context>" → returns <name>
+ * For "agent:main:cron:<jobId>" → returns "main" (gateway agent)
  * Falls back to null if the format doesn't match.
  */
 function parseAgentFromSessionKey(key: string): string | null {
   const parts = key.split(":");
   if (parts.length >= 2 && parts[0] === "agent") {
-    return parts[1] === "main" ? null : parts[1];
+    // Return the agent name even if it's "main"
+    return parts[1] || null;
   }
   return null;
 }
