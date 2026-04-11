@@ -2,15 +2,17 @@
 /**
  * ChatInput — Phase 4
  *
- * Textarea with Send button for composing direct messages.
- * Enter sends, Shift+Enter adds newline. Inserts via API route
- * and optimistically updates the chat store.
+ * Sends message via API route which:
+ * 1. Saves to Supabase
+ * 2. Calls OpenRouter with the agent's real model
+ * 3. Saves the agent's real AI response
+ *
+ * Supabase Realtime in MessageView picks up both messages automatically.
  */
 
 import { useRef, useState } from "react";
-import { Send } from "lucide-react";
+import { Send, Loader2 } from "lucide-react";
 
-import { Button } from "@/components/ui/button";
 import { useChatStore } from "@/store/chat-store";
 import type { DirectMessage } from "@/types";
 
@@ -29,18 +31,17 @@ export default function ChatInput({ threadId }: ChatInputProps) {
     if (!trimmed || sending) return;
 
     setSending(true);
+    setValue("");
 
-    // Optimistic message
-    const optimistic: DirectMessage = {
+    // Optimistic: show Javier's message immediately
+    addMessage({
       id: crypto.randomUUID(),
       thread_id: threadId,
       sender: "javier",
       content: trimmed,
       metadata: {},
       created_at: new Date().toISOString(),
-    };
-    addMessage(optimistic);
-    setValue("");
+    });
 
     try {
       const res = await fetch("/api/chat/send", {
@@ -50,7 +51,8 @@ export default function ChatInput({ threadId }: ChatInputProps) {
       });
 
       if (!res.ok) {
-        console.error("[ChatInput] Send failed:", await res.text());
+        const errText = await res.text();
+        console.error("[ChatInput] Send failed:", errText);
       }
     } catch (err) {
       console.error("[ChatInput] Network error:", err);
@@ -74,19 +76,23 @@ export default function ChatInput({ threadId }: ChatInputProps) {
         value={value}
         onChange={(e) => setValue(e.target.value)}
         onKeyDown={handleKeyDown}
-        placeholder="Type a message..."
+        placeholder="Escribe un mensaje..."
         disabled={sending}
         rows={1}
         className="max-h-32 min-h-[40px] flex-1 resize-none rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 focus:border-blue-300 focus:outline-none focus:ring-2 focus:ring-blue-100 disabled:opacity-50"
       />
-      <Button
-        size="icon-sm"
+      <button
         onClick={handleSend}
         disabled={sending || !value.trim()}
-        title="Send message"
+        title="Enviar mensaje"
+        className="flex h-8 w-8 items-center justify-center rounded-md bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50"
       >
-        <Send className="h-4 w-4" />
-      </Button>
+        {sending ? (
+          <Loader2 className="h-4 w-4 animate-spin" />
+        ) : (
+          <Send className="h-4 w-4" />
+        )}
+      </button>
     </div>
   );
 }
