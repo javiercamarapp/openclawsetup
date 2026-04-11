@@ -1,20 +1,20 @@
 "use client";
 /**
- * ChatInput — Phase 4
+ * ChatInput — Phase 4 (with explicit reload fallback)
  *
  * Sends message via API route which:
  * 1. Saves to Supabase
  * 2. Calls OpenRouter with the agent's real model
  * 3. Saves the agent's real AI response
  *
- * Supabase Realtime in MessageView picks up both messages automatically.
- * Optimistic updates show Javier's message immediately.
- * Errors are shown inline as red system messages.
+ * After the API returns, explicitly reloads messages from Supabase
+ * so the UI updates even if Realtime is broken.
  */
 
 import { useRef, useState } from "react";
 import { Send, Loader2 } from "lucide-react";
 
+import { getBrowserSupabase } from "@/lib/supabase/browser";
 import { useChatStore } from "@/store/chat-store";
 import type { DirectMessage } from "@/types";
 
@@ -28,6 +28,36 @@ export default function ChatInput({ threadId }: ChatInputProps) {
   const [error, setError] = useState<string | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const addMessage = useChatStore((s) => s.addMessage);
+  const setThreadMessages = useChatStore((s) => s.setThreadMessages);
+
+  async function reloadMessages() {
+    try {
+      const supabase = getBrowserSupabase();
+      const { data } = await supabase
+        .from("direct_messages")
+        .select("*")
+        .eq("thread_id", threadId)
+        .order("created_at", { ascending: true })
+        .limit(200);
+
+      if (data) {
+        const msgs: DirectMessage[] = data.map((row) => ({
+          id: row.id,
+          thread_id: row.thread_id,
+          sender: row.sender,
+          content: row.content,
+          metadata:
+            typeof row.metadata === "object" && row.metadata !== null
+              ? (row.metadata as Record<string, unknown>)
+              : {},
+          created_at: row.created_at,
+        }));
+        setThreadMessages(threadId, msgs);
+      }
+    } catch (err) {
+      console.error("[ChatInput] Reload failed:", err);
+    }
+  }
 
   async function handleSend() {
     const trimmed = value.trim();
@@ -65,7 +95,6 @@ export default function ChatInput({ threadId }: ChatInputProps) {
         }
         console.error("[ChatInput] Send failed:", errMsg);
         setError(errMsg);
-        // Show error as a system message in the thread
         addMessage({
           id: `error-${crypto.randomUUID()}`,
           thread_id: threadId,
@@ -74,6 +103,9 @@ export default function ChatInput({ threadId }: ChatInputProps) {
           metadata: { isError: true },
           created_at: new Date().toISOString(),
         });
+      } else {
+        // Success — reload to pick up both Javier's message and agent response
+        await reloadMessages();
       }
     } catch (err) {
       const errMsg =

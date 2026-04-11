@@ -70,11 +70,10 @@ export default function MessageView({ threadId }: MessageViewProps) {
     [],
   );
 
-  // Load messages on mount / thread change
+  // Load messages on mount / thread change + poll every 3s as fallback
   useEffect(() => {
     let cancelled = false;
     async function load() {
-      setLoading(true);
       try {
         const supabase = getBrowserSupabase();
         const { data, error } = await supabase
@@ -107,9 +106,16 @@ export default function MessageView({ threadId }: MessageViewProps) {
         if (!cancelled) setLoading(false);
       }
     }
-    load();
+
+    setLoading(true);
+    load(); // initial load
+
+    // Poll every 3 seconds as a Realtime fallback
+    const pollInterval = setInterval(load, 3000);
+
     return () => {
       cancelled = true;
+      clearInterval(pollInterval);
     };
   }, [threadId, setThreadMessages, setLoading]);
 
