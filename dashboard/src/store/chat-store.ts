@@ -45,25 +45,25 @@ export const useChatStore = create<ChatState & ChatActions>((set, get) => ({
       if (existsById) return;
 
       // Deduplicate: check if a message with same sender+content+thread
-      // was added within the last 5 seconds (optimistic vs realtime)
+      // was added within the last 10 seconds (optimistic vs realtime).
+      // The window is 10s to account for API latency between client timestamp
+      // and server-generated created_at.
       const now = new Date(message.created_at).getTime();
-      const existsByContent = thread.messages.some((m) => {
+      const DEDUP_WINDOW_MS = 10000;
+
+      const idx = thread.messages.findIndex((m) => {
         if (m.sender !== message.sender || m.content !== message.content) {
           return false;
         }
         const mTime = new Date(m.created_at).getTime();
-        return Math.abs(now - mTime) < 5000;
+        return Math.abs(now - mTime) < DEDUP_WINDOW_MS;
       });
-      if (existsByContent) {
-        // Replace the optimistic message ID with the real one if the existing
-        // one has a different ID (the real DB id should win)
-        const idx = thread.messages.findIndex(
-          (m) =>
-            m.sender === message.sender &&
-            m.content === message.content &&
-            Math.abs(new Date(m.created_at).getTime() - now) < 5000,
-        );
-        if (idx !== -1 && thread.messages[idx].id !== message.id) {
+
+      if (idx !== -1) {
+        // A matching message exists (likely the optimistic one).
+        // Replace with the real DB message so the ID is correct.
+        const existing = thread.messages[idx];
+        if (existing.id.startsWith("optimistic-") || existing.id !== message.id) {
           thread.messages[idx] = message;
           set({ threads: new Map(threads) });
         }
