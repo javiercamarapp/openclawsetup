@@ -158,6 +158,25 @@ export default function MessageView({ threadId }: MessageViewProps) {
 
           {messages.map((msg) => {
             const isJavier = msg.sender === "javier";
+            const isSystem = msg.sender === "system";
+            const isError = isSystem && msg.metadata?.isError;
+
+            if (isSystem) {
+              return (
+                <div key={msg.id} className="flex justify-center">
+                  <p
+                    className={`rounded px-3 py-1 text-xs ${
+                      isError
+                        ? "bg-red-50 text-red-600"
+                        : "bg-gray-100 text-gray-500"
+                    }`}
+                  >
+                    {msg.content}
+                  </p>
+                </div>
+              );
+            }
+
             return (
               <div
                 key={msg.id}

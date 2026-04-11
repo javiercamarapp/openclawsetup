@@ -40,6 +40,36 @@ export const useChatStore = create<ChatState & ChatActions>((set, get) => ({
     const threads = get().threads;
     const thread = threads.get(message.thread_id);
     if (thread) {
+      // Deduplicate: check if a message with the same ID already exists
+      const existsById = thread.messages.some((m) => m.id === message.id);
+      if (existsById) return;
+
+      // Deduplicate: check if a message with same sender+content+thread
+      // was added within the last 5 seconds (optimistic vs realtime)
+      const now = new Date(message.created_at).getTime();
+      const existsByContent = thread.messages.some((m) => {
+        if (m.sender !== message.sender || m.content !== message.content) {
+          return false;
+        }
+        const mTime = new Date(m.created_at).getTime();
+        return Math.abs(now - mTime) < 5000;
+      });
+      if (existsByContent) {
+        // Replace the optimistic message ID with the real one if the existing
+        // one has a different ID (the real DB id should win)
+        const idx = thread.messages.findIndex(
+          (m) =>
+            m.sender === message.sender &&
+            m.content === message.content &&
+            Math.abs(new Date(m.created_at).getTime() - now) < 5000,
+        );
+        if (idx !== -1 && thread.messages[idx].id !== message.id) {
+          thread.messages[idx] = message;
+          set({ threads: new Map(threads) });
+        }
+        return;
+      }
+
       thread.messages.push(message);
       thread.lastMessage = message.content;
       thread.lastMessageAt = message.created_at;
