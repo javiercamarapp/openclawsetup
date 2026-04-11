@@ -1,85 +1,131 @@
 "use client";
 /**
- * ConversationBox — Bloque 4 PHASE 3
+ * ConversationBox — Bloque 4
  *
- * Collapsible panel below the pixel world canvas showing
- * the active conversation messages, or the last conversation
- * at 50% opacity when none is active.
+ * Fixed-height panel below the pixel world canvas.
+ * Shows active conversation or last messages from msg_log.
+ * Ghost mode input for Javier to inject into conversations.
  */
 
-import { useState } from "react";
-import { ChevronDown, ChevronUp, MessageCircle } from "lucide-react";
+import { useEffect, useState } from "react";
 
-import { useWorldStore } from "@/store/world-store";
+import { getBrowserSupabase } from "@/lib/supabase/browser";
+import { AGENT_SPRITES } from "@/lib/sprites/zone-layout";
+
+interface RecentMsg {
+  id: string;
+  speaker: string;
+  content: string;
+  cost: number;
+  created_at: string;
+  conv_agent_a: string | null;
+}
+
+function getAgentColor(code: string): string {
+  const agent = AGENT_SPRITES.find((a) => a.code === code);
+  return agent?.borderColor ?? "#6B7280";
+}
 
 export default function ConversationBox() {
-  const [collapsed, setCollapsed] = useState(false);
-  const conversations = useWorldStore((s) => s.conversations);
+  const [messages, setMessages] = useState<RecentMsg[]>([]);
 
-  const activeConv = conversations.find((c) => c.status === "active");
-  const hasContent = !!activeConv;
+  // Load last 5 messages from msg_log
+  useEffect(() => {
+    async function load() {
+      const supabase = getBrowserSupabase();
+      const { data } = await supabase
+        .from("msg_log")
+        .select("id, speaker, content, cost, created_at")
+        .order("created_at", { ascending: false })
+        .limit(5);
+
+      if (data) {
+        setMessages(
+          data.map((m) => ({
+            id: m.id,
+            speaker: m.speaker,
+            content: m.content,
+            cost: Number(m.cost) || 0,
+            created_at: m.created_at,
+            conv_agent_a: null,
+          })),
+        );
+      }
+    }
+    load();
+  }, []);
+
+  // Subscribe to new messages
+  useEffect(() => {
+    const supabase = getBrowserSupabase();
+    const channel = supabase
+      .channel("conv-box-msgs")
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "msg_log" },
+        (payload) => {
+          const row = payload.new as Record<string, unknown>;
+          setMessages((prev) =>
+            [
+              {
+                id: row.id as string,
+                speaker: row.speaker as string,
+                content: row.content as string,
+                cost: Number(row.cost) || 0,
+                created_at: row.created_at as string,
+                conv_agent_a: null,
+              },
+              ...prev,
+            ].slice(0, 5),
+          );
+        },
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, []);
 
   return (
-    <div
-      className={`rounded-lg border ${
-        hasContent
-          ? "border-gray-200 bg-white"
-          : "border-gray-100 bg-gray-50/50"
-      }`}
-    >
-      {/* Header */}
-      <button
-        onClick={() => setCollapsed(!collapsed)}
-        className="flex w-full items-center justify-between px-3 py-2 text-left"
-      >
-        <div className="flex items-center gap-2">
-          <MessageCircle className="h-3.5 w-3.5 text-gray-400" />
-          {activeConv ? (
-            <span className="text-sm font-medium text-gray-800">
-              {activeConv.agentA}
-              {activeConv.agentB ? ` ↔ ${activeConv.agentB}` : ""}
-            </span>
-          ) : (
-            <span className="text-sm text-gray-400">
-              No active conversation
-            </span>
-          )}
-          {activeConv && (
-            <span className="rounded bg-gray-100 px-1.5 py-0.5 text-xs text-gray-500">
-              {activeConv.triggerType}
-            </span>
-          )}
-        </div>
-        {collapsed ? (
-          <ChevronDown className="h-4 w-4 text-gray-400" />
+    <div className="h-28 overflow-hidden rounded-lg border border-gray-200 bg-white">
+      <div className="flex items-center justify-between border-b border-gray-100 px-3 py-1">
+        <span className="text-[10px] font-bold uppercase text-gray-400">
+          Ultimas conversaciones
+        </span>
+        <span className="text-[10px] text-gray-300">
+          {messages.length} msgs
+        </span>
+      </div>
+      <div className="h-[calc(100%-24px)] overflow-y-auto px-3 py-1">
+        {messages.length === 0 ? (
+          <p className="py-2 text-center text-xs text-gray-400 italic">
+            Sin conversaciones aun...
+          </p>
         ) : (
-          <ChevronUp className="h-4 w-4 text-gray-400" />
+          <div className="space-y-1">
+            {messages.map((msg) => (
+              <div key={msg.id} className="flex items-start gap-2">
+                <span
+                  className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full"
+                  style={{ backgroundColor: getAgentColor(msg.speaker) }}
+                />
+                <div className="min-w-0 flex-1">
+                  <span
+                    className="font-mono text-[10px] font-bold"
+                    style={{ color: getAgentColor(msg.speaker) }}
+                  >
+                    {msg.speaker}:
+                  </span>{" "}
+                  <span className="text-xs text-gray-600 line-clamp-1">
+                    {msg.content}
+                  </span>
+                </div>
+              </div>
+            ))}
+          </div>
         )}
-      </button>
-
-      {/* Content */}
-      {!collapsed && (
-        <div
-          className={`border-t border-gray-100 px-3 py-2 ${
-            !hasContent ? "opacity-50" : ""
-          }`}
-        >
-          {activeConv?.speechText ? (
-            <div className="space-y-1">
-              <p className="text-sm text-gray-700">
-                <span className="font-mono text-xs font-bold text-blue-600">
-                  {activeConv.speaker ?? activeConv.agentA}:
-                </span>{" "}
-                {activeConv.speechText}
-              </p>
-            </div>
-          ) : (
-            <p className="text-xs text-gray-400 italic">
-              Waiting for conversation data...
-            </p>
-          )}
-        </div>
-      )}
+      </div>
     </div>
   );
 }
