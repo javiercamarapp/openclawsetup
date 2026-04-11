@@ -1,124 +1,62 @@
-import PixelWorldWrapper from "@/components/pixel-world/PixelWorldWrapper";
+"use client";
+
+import dynamic from "next/dynamic";
+
+// Dynamic imports for client-only components (PixiJS, Supabase Realtime)
+const PixelWorldWrapper = dynamic(
+  () => import("@/components/pixel-world/PixelWorldWrapper"),
+  { ssr: false },
+);
+const ActivityFeed = dynamic(
+  () => import("@/components/activity-feed/ActivityFeed"),
+  { ssr: false },
+);
+const KpiCards = dynamic(
+  () => import("@/components/activity-feed/KpiCards"),
+  { ssr: false },
+);
+const ConversationBox = dynamic(
+  () => import("@/components/pixel-world/ConversationBox"),
+  { ssr: false },
+);
+const AgentBar = dynamic(
+  () => import("@/components/pixel-world/AgentBar"),
+  { ssr: false },
+);
 
 export default function Home() {
   return (
-    <main className="min-h-screen bg-slate-950 text-slate-100">
-      {/* Header */}
-      <header className="border-b border-slate-800 px-6 py-4">
-        <div className="flex items-center justify-between">
-          <div>
-            <p className="text-xs font-mono uppercase tracking-wider text-slate-500">
-              Bloque 3 · Empresa Virtual
-            </p>
-            <h1 className="text-xl font-semibold tracking-tight">
-              Agent Command Center
-            </h1>
-          </div>
-          <div className="flex gap-2 text-xs text-slate-500">
-            <span className="rounded bg-slate-800 px-2 py-1">
-              24 agents
-            </span>
-            <span className="rounded bg-slate-800 px-2 py-1">
-              13 crons
-            </span>
-            <span className="rounded bg-emerald-900 px-2 py-1 text-emerald-400">
-              live
-            </span>
-          </div>
-        </div>
-      </header>
-
-      <div className="mx-auto max-w-5xl space-y-6 p-6">
-        {/* Pixel World */}
-        <section>
-          <h2 className="mb-2 text-sm font-semibold uppercase tracking-wide text-slate-500">
-            Pixel World
-          </h2>
+    <div className="flex h-[calc(100vh-3.5rem)] overflow-hidden">
+      {/* Left: Canvas + Conversation Box + Agent Bar */}
+      <div className="flex flex-1 flex-col overflow-hidden">
+        {/* Pixel World Canvas */}
+        <div className="flex-1 overflow-hidden p-4 pb-0">
           <PixelWorldWrapper />
-        </section>
+        </div>
 
-        {/* Dashboard nav cards (FASE 6 stubs) */}
-        <section className="grid grid-cols-2 gap-4 sm:grid-cols-4">
-          <NavCard
-            href="/tasks"
-            title="Tasks"
-            description="Kanban board"
-            icon="T"
-          />
-          <NavCard
-            href="/costs"
-            title="Cost Center"
-            description="Usage & spend"
-            icon="$"
-          />
-          <NavCard
-            href="/comms"
-            title="Comm Log"
-            description="Conversations"
-            icon="C"
-          />
-          <NavCard
-            href="/config"
-            title="Config"
-            description="Agent settings"
-            icon="S"
-          />
-        </section>
+        {/* Conversation Box (collapsible) */}
+        <div className="shrink-0 px-4 py-2">
+          <ConversationBox />
+        </div>
 
-        {/* Roadmap */}
-        <section>
-          <h2 className="mb-2 text-sm font-semibold uppercase tracking-wide text-slate-500">
-            Roadmap
-          </h2>
-          <div className="grid grid-cols-2 gap-2 text-xs sm:grid-cols-5">
-            {[
-              { id: "FASE 0-1", done: true },
-              { id: "FASE 2", done: true },
-              { id: "FASE 3", done: true },
-              { id: "FASE 4.5+5", done: true },
-              { id: "FASE 6", done: true },
-              { id: "FASE 7", done: true },
-              { id: "FASE 8", done: true },
-            ].map((p) => (
-              <span
-                key={p.id}
-                className={`rounded px-2 py-1 text-center ${
-                  p.done
-                    ? "bg-emerald-900/50 text-emerald-400"
-                    : "bg-slate-800 text-slate-500"
-                }`}
-              >
-                {p.id}
-              </span>
-            ))}
-          </div>
-        </section>
+        {/* Agent Bar */}
+        <div className="shrink-0 border-t border-gray-200 bg-white">
+          <AgentBar />
+        </div>
       </div>
-    </main>
-  );
-}
 
-function NavCard({
-  href,
-  title,
-  description,
-  icon,
-}: {
-  href: string;
-  title: string;
-  description: string;
-  icon: string;
-}) {
-  return (
-    <a
-      href={href}
-      className="group rounded-lg border border-slate-800 bg-slate-900 p-4 transition-colors hover:border-slate-600 hover:bg-slate-800"
-    >
-      <div className="mb-2 flex h-8 w-8 items-center justify-center rounded bg-slate-800 font-mono text-sm font-bold text-slate-400 group-hover:bg-slate-700">
-        {icon}
-      </div>
-      <p className="text-sm font-medium">{title}</p>
-      <p className="text-xs text-slate-500">{description}</p>
-    </a>
+      {/* Right: Sidebar */}
+      <aside className="flex w-80 shrink-0 flex-col border-l border-gray-200 bg-white">
+        {/* Activity Feed (60% top) */}
+        <div className="flex-[3] overflow-hidden">
+          <ActivityFeed />
+        </div>
+
+        {/* KPI Cards (40% bottom) */}
+        <div className="flex-[2] border-t border-gray-200 p-3">
+          <KpiCards />
+        </div>
+      </aside>
+    </div>
   );
 }

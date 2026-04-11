@@ -29,7 +29,7 @@ export interface AgentSpriteConfig {
 
 // ── Canvas dimensions ────────────────────────────────────────────
 export const CANVAS_W = 750;
-export const CANVAS_H = 380;
+export const CANVAS_H = 400;
 
 // ── Tier border colors (from NOTES.md §3) ────────────────────────
 export const TIER_COLORS: Record<string, string> = {

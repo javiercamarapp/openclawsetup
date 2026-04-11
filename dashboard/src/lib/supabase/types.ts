@@ -39,6 +39,71 @@ export type Database = {
   }
   public: {
     Tables: {
+      direct_messages: {
+        Row: {
+          id: string
+          thread_id: string
+          sender: string
+          content: string
+          metadata: Json
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          thread_id: string
+          sender: string
+          content: string
+          metadata?: Json
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          thread_id?: string
+          sender?: string
+          content?: string
+          metadata?: Json
+          created_at?: string
+        }
+        Relationships: []
+      }
+      task_schedules: {
+        Row: {
+          id: string
+          task_id: string
+          cron_expression: string | null
+          next_run_at: string | null
+          last_run_at: string | null
+          enabled: boolean
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          task_id: string
+          cron_expression?: string | null
+          next_run_at?: string | null
+          last_run_at?: string | null
+          enabled?: boolean
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          task_id?: string
+          cron_expression?: string | null
+          next_run_at?: string | null
+          last_run_at?: string | null
+          enabled?: boolean
+          created_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "task_schedules_task_id_fkey"
+            columns: ["task_id"]
+            isOneToOne: false
+            referencedRelation: "tasks"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       agent_positions: {
         Row: {
           code: string
@@ -214,6 +279,8 @@ export type Database = {
           due_at: string | null
           id: string
           priority: string
+          scheduled_at: string | null
+          recurrence: string | null
           status: string
           title: string
           type: string
@@ -228,6 +295,8 @@ export type Database = {
           due_at?: string | null
           id?: string
           priority: string
+          scheduled_at?: string | null
+          recurrence?: string | null
           status?: string
           title: string
           type: string
@@ -242,6 +311,8 @@ export type Database = {
           due_at?: string | null
           id?: string
           priority?: string
+          scheduled_at?: string | null
+          recurrence?: string | null
           status?: string
           title?: string
           type?: string

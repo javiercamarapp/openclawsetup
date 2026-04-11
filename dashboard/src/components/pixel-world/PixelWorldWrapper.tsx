@@ -2,11 +2,11 @@
 
 import dynamic from "next/dynamic";
 
-const PixelWorld = dynamic(
-  () => import("@/components/pixel-world/PixelWorld"),
+const PixelWorldPixi = dynamic(
+  () => import("@/components/pixel-world/PixelWorldPixi"),
   { ssr: false },
 );
 
 export default function PixelWorldWrapper() {
-  return <PixelWorld />;
+  return <PixelWorldPixi />;
 }

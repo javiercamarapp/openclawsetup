@@ -1,0 +1,13 @@
+CREATE TABLE IF NOT EXISTS task_schedules (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  task_id UUID REFERENCES tasks(id) ON DELETE CASCADE,
+  cron_expression VARCHAR(100),
+  next_run_at TIMESTAMPTZ,
+  last_run_at TIMESTAMPTZ,
+  enabled BOOLEAN NOT NULL DEFAULT true,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+ALTER TABLE task_schedules DISABLE ROW LEVEL SECURITY;
+
+ALTER TABLE tasks ADD COLUMN IF NOT EXISTS scheduled_at TIMESTAMPTZ;
+ALTER TABLE tasks ADD COLUMN IF NOT EXISTS recurrence VARCHAR(100);
